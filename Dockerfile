@@ -5,7 +5,7 @@ FROM rust:1-bookworm AS builder
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates \
+    && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
@@ -13,6 +13,8 @@ COPY src ./src
 COPY static ./static
 
 RUN cargo build --release --locked
+
+RUN curl -fsSL -o /tmp/ip66.mmdb https://downloads.ip66.dev/db/ip66.mmdb
 
 FROM debian:bookworm-slim
 
@@ -23,10 +25,12 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/dmarcontrol /usr/local/bin/dmarcontrol
+RUN mkdir -p /app/data
 
-RUN mkdir -p /app/data \
-    && chown -R dmarcontrol:dmarcontrol /app
+COPY --from=builder /app/target/release/dmarcontrol /usr/local/bin/dmarcontrol
+COPY --from=builder /tmp/ip66.mmdb /app/data/ip66.mmdb
+
+RUN chown -R dmarcontrol:dmarcontrol /app
 
 USER dmarcontrol
 

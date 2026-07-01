@@ -79,19 +79,7 @@ Open `http://localhost:8080`.
 
 ## IP Geolocation
 
-Dmarcontrol can enrich source IPs with the free IP66 MMDB database.
-
-```bash
-mkdir -p data
-curl -L -o data/ip66.mmdb https://downloads.ip66.dev/db/ip66.mmdb
-```
-
-Docker:
-
-```bash
-docker run --rm -v dmarcontrol-data:/data curlimages/curl:latest \
-  -L -o /data/ip66.mmdb https://downloads.ip66.dev/db/ip66.mmdb
-```
+Dmarcontrol enriches source IPs with the free IP66 MMDB database. The Docker image includes `ip66.mmdb` out of the box, so no extra installation step is required for container deployments.
 
 ---
 
