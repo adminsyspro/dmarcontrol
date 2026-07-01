@@ -6,6 +6,8 @@
   Self-hosted DMARC aggregate report viewer for teams that want local storage, fast inspection, and a small operational footprint.
 </p>
 
+![Dmarcontrol dashboard score distribution](docs/assets/dashboard-score-distribution.png)
+
 ---
 
 ## Overview

@@ -4,14 +4,14 @@ use axum::extract::{Multipart, Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, Uri};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{middleware, Json, Router};
 use serde::{Deserialize, Serialize};
 
 use crate::app::{AppState, Statistics};
 use crate::auth::{
-    self, LoginRequest, OidcCallbackQuery, OidcSettingsInput, OidcSettingsResponse,
-    ProvidersResponse, SessionResponse,
+    self, ChangePasswordRequest, CreateUserRequest, LoginRequest, ManagedUser, OidcCallbackQuery,
+    OidcSettingsInput, OidcSettingsResponse, ProvidersResponse, SessionResponse, UpdateUserRequest,
 };
 use crate::dmarc::{Record, Report};
 use crate::error::{AppError, Result};
@@ -46,6 +46,8 @@ pub fn router(state: AppState) -> Router {
     let state = Arc::new(state);
     Router::new()
         .route("/", get(index))
+        .route("/settings", get(index))
+        .route("/authentication", get(index))
         .route("/login", get(login_page))
         .route("/assets/brand/dmarcontrol-logo.svg", get(brand_logo))
         .route(
@@ -80,10 +82,13 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/app.js", get(js))
         .route("/healthz", get(healthz))
         .route("/api/auth/login", post(login).delete(logout))
+        .route("/api/auth/password", post(change_password))
         .route("/api/auth/session", get(session))
         .route("/api/auth/providers", get(providers))
         .route("/api/auth/oidc/login", get(oidc_login))
         .route("/api/auth/oidc/callback", get(oidc_callback))
+        .route("/api/users", get(list_users).post(create_user))
+        .route("/api/users/:id", put(update_user).delete(delete_user))
         .route("/api/statistics", get(statistics))
         .route("/api/overview", get(overview))
         .route("/api/domains", get(domains))
@@ -228,6 +233,23 @@ async fn current_user_from_headers(
         .await
 }
 
+async fn current_user_required(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+) -> Result<auth::AuthUser> {
+    current_user_from_headers(state, headers)
+        .await?
+        .ok_or_else(|| AppError::Auth("authentication required".to_string()))
+}
+
+async fn admin_user_required(state: &Arc<AppState>, headers: &HeaderMap) -> Result<auth::AuthUser> {
+    let user = current_user_required(state, headers).await?;
+    if !user.role.eq_ignore_ascii_case("administrator") {
+        return Err(AppError::Auth("administrator role required".to_string()));
+    }
+    Ok(user)
+}
+
 async fn login(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<LoginRequest>,
@@ -281,10 +303,52 @@ async fn session(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<SessionResponse>> {
-    let user = current_user_from_headers(&state, &headers)
-        .await?
-        .ok_or_else(|| AppError::Auth("authentication required".to_string()))?;
+    let user = current_user_required(&state, &headers).await?;
     Ok(Json(SessionResponse { user }))
+}
+
+async fn change_password(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let user = current_user_required(&state, &headers).await?;
+
+    if payload.current_password.is_empty() || payload.new_password.is_empty() {
+        return Err(AppError::Auth(
+            "current_password and new_password are required".to_string(),
+        ));
+    }
+    if payload.new_password.len() < 8 {
+        return Err(AppError::Auth(
+            "new password must be at least 8 characters".to_string(),
+        ));
+    }
+    if payload.current_password == payload.new_password {
+        return Err(AppError::Auth(
+            "new password must be different from the current password".to_string(),
+        ));
+    }
+
+    let Some(local_user) = state.store.find_local_user_by_id(&user.id).await? else {
+        return Err(AppError::Auth(
+            "password changes are only available for local accounts".to_string(),
+        ));
+    };
+    if !auth::verify_password(&payload.current_password, &local_user.password_hash)? {
+        return Err(AppError::Auth("current password is incorrect".to_string()));
+    }
+
+    let password_hash = auth::hash_password(&payload.new_password)?;
+    if !state
+        .store
+        .update_local_user_password_hash(&user.id, &password_hash)
+        .await?
+    {
+        return Err(AppError::NotFound("local user not found".to_string()));
+    }
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn providers(State(state): State<Arc<AppState>>) -> Result<Json<ProvidersResponse>> {
@@ -293,6 +357,185 @@ async fn providers(State(state): State<Arc<AppState>>) -> Result<Json<ProvidersR
         local: true,
         oidc: (&settings).into(),
     }))
+}
+
+async fn list_users(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ManagedUser>>> {
+    admin_user_required(&state, &headers).await?;
+    Ok(Json(state.store.list_users().await?))
+}
+
+async fn create_user(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateUserRequest>,
+) -> Result<Json<ManagedUser>> {
+    admin_user_required(&state, &headers).await?;
+    let username = normalize_username(&payload.username)?;
+    if state.store.username_exists(&username).await? {
+        return Err(AppError::Conflict(format!(
+            "user already exists: {username}"
+        )));
+    }
+    let password = payload.password.trim();
+    validate_new_password(password)?;
+
+    let email = payload.email.trim().to_string();
+    let display_name = non_empty_trimmed(&payload.display_name, &username);
+    let role = "Administrator";
+    let active = payload.active.unwrap_or(true);
+    let password_hash = auth::hash_password(password)?;
+    let user = state
+        .store
+        .create_local_user(
+            &auth::random_id()?,
+            &username,
+            &email,
+            &display_name,
+            role,
+            active,
+            &password_hash,
+        )
+        .await?;
+    Ok(Json(user))
+}
+
+async fn update_user(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> Result<Json<ManagedUser>> {
+    let actor = admin_user_required(&state, &headers).await?;
+    let existing = state
+        .store
+        .user_by_id(&id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("user not found: {id}")))?;
+
+    if actor.id == id && !payload.active {
+        return Err(AppError::Conflict(
+            "cannot deactivate the current user".to_string(),
+        ));
+    }
+    if existing.active && !payload.active && state.store.active_user_count().await? <= 1 {
+        return Err(AppError::Conflict(
+            "cannot deactivate the last active user".to_string(),
+        ));
+    }
+
+    let role = normalize_role(&payload.role, &existing.role)?;
+    let display_name = non_empty_trimmed(&payload.display_name, &existing.username);
+    let email = payload.email.trim().to_string();
+    let new_password_hash = if payload.password.trim().is_empty() {
+        None
+    } else {
+        if existing.auth_type != "local" {
+            return Err(AppError::Auth(
+                "password reset is only available for local accounts".to_string(),
+            ));
+        }
+        validate_new_password(payload.password.trim())?;
+        Some(auth::hash_password(payload.password.trim())?)
+    };
+
+    let updated = state
+        .store
+        .update_user(&id, &email, &display_name, &role, payload.active)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("user not found: {id}")))?;
+
+    if let Some(password_hash) = new_password_hash {
+        if !state
+            .store
+            .update_local_user_password_hash(&id, &password_hash)
+            .await?
+        {
+            return Err(AppError::NotFound(format!("local user not found: {id}")));
+        }
+    }
+
+    Ok(Json(updated))
+}
+
+async fn delete_user(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let actor = admin_user_required(&state, &headers).await?;
+    let existing = state
+        .store
+        .user_by_id(&id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("user not found: {id}")))?;
+
+    if actor.id == id {
+        return Err(AppError::Conflict(
+            "cannot delete the current user".to_string(),
+        ));
+    }
+    if existing.active && state.store.active_user_count().await? <= 1 {
+        return Err(AppError::Conflict(
+            "cannot delete the last active user".to_string(),
+        ));
+    }
+    if !state.store.delete_user(&id).await? {
+        return Err(AppError::NotFound(format!("user not found: {id}")));
+    }
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
+fn normalize_username(value: &str) -> Result<String> {
+    let username = value.trim();
+    if username.len() < 3 || username.len() > 64 {
+        return Err(AppError::Auth(
+            "username must be between 3 and 64 characters".to_string(),
+        ));
+    }
+    if !username
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    {
+        return Err(AppError::Auth(
+            "username can only contain letters, numbers, dots, underscores and hyphens".to_string(),
+        ));
+    }
+    Ok(username.to_string())
+}
+
+fn normalize_role(value: &str, fallback: &str) -> Result<String> {
+    let role = if value.trim().is_empty() {
+        fallback
+    } else {
+        value.trim()
+    };
+    if !role.eq_ignore_ascii_case("administrator") {
+        return Err(AppError::Auth(
+            "only Administrator users are supported".to_string(),
+        ));
+    }
+    Ok("Administrator".to_string())
+}
+
+fn validate_new_password(password: &str) -> Result<()> {
+    if password.len() < 8 {
+        return Err(AppError::Auth(
+            "password must be at least 8 characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn non_empty_trimmed(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 async fn oidc_login(
@@ -534,7 +777,10 @@ async fn search(State(state): State<Arc<AppState>>, uri: Uri) -> Json<SearchResp
                 kind: "domain",
                 title: domain.domain.clone(),
                 subtitle: format!("{} messages · {} sources", domain.messages, domain.sources),
-                detail: format!("Policy {} · grade {} · {}", domain.policy, domain.grade, domain.next_step),
+                detail: format!(
+                    "Policy {} · grade {} · {}",
+                    domain.policy, domain.grade, domain.next_step
+                ),
                 domain: Some(domain.domain),
                 source_ip: None,
                 report_id: None,
@@ -544,7 +790,10 @@ async fn search(State(state): State<Arc<AppState>>, uri: Uri) -> Json<SearchResp
 
     for source in sources {
         if matches_any(&term, [&source.source_ip, &source.sender])
-            || source.domains.iter().any(|domain| matches_text(&term, domain))
+            || source
+                .domains
+                .iter()
+                .any(|domain| matches_text(&term, domain))
         {
             results.push(SearchResult {
                 kind: "source",
@@ -586,12 +835,19 @@ async fn search(State(state): State<Arc<AppState>>, uri: Uri) -> Json<SearchResp
     }
 
     for report in &reports {
-        if matches_any(&term, [&report.policy.domain, &report.org_name, &report.report_id]) {
+        if matches_any(
+            &term,
+            [&report.policy.domain, &report.org_name, &report.report_id],
+        ) {
             results.push(SearchResult {
                 kind: "report",
                 title: report.policy.domain.clone(),
                 subtitle: format!("{} · {}", report.org_name, report.report_id),
-                detail: format!("{} to {}", report.begin.date_naive(), report.end.date_naive()),
+                detail: format!(
+                    "{} to {}",
+                    report.begin.date_naive(),
+                    report.end.date_naive()
+                ),
                 domain: Some(report.policy.domain.clone()),
                 source_ip: None,
                 report_id: Some(report.id.clone()),

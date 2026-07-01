@@ -37,6 +37,17 @@ pub struct AuthUser {
     pub auth_type: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ManagedUser {
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub display_name: String,
+    pub role: String,
+    pub auth_type: String,
+    pub active: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct LocalUser {
     pub user: AuthUser,
@@ -199,6 +210,37 @@ pub struct SessionResponse {
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUserRequest {
+    pub username: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub display_name: String,
+    pub password: String,
+    #[serde(default)]
+    pub active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserRequest {
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub role: String,
+    pub active: bool,
+    #[serde(default)]
     pub password: String,
 }
 

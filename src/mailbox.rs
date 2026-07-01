@@ -1,7 +1,10 @@
 use std::env;
 use std::sync::Arc;
 
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use chrono::{Duration, Utc};
+use mailparse::body::Body;
 use mailparse::{parse_mail, DispositionType, MailHeaderMap, ParsedMail};
 use serde::{Deserialize, Serialize};
 
@@ -231,7 +234,7 @@ impl MailboxImporter {
         let fetched = tokio::task::spawn_blocking(move || fetch_attachments(config)).await??;
 
         let mut reports = Vec::new();
-        let mut failed_attachments = Vec::new();
+        let mut failed_attachments = fetched.failed_attachments;
 
         for attachment in fetched.attachments {
             match parse_payload(&attachment.filename, &attachment.bytes) {
@@ -267,6 +270,7 @@ struct FetchedMailbox {
     messages_matched: usize,
     attachments_found: usize,
     attachments: Vec<MailboxAttachment>,
+    failed_attachments: Vec<String>,
 }
 
 struct MailboxAttachment {
@@ -293,6 +297,7 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
             messages_matched: 0,
             attachments_found: 0,
             attachments: Vec::new(),
+            failed_attachments: Vec::new(),
         });
     }
 
@@ -300,6 +305,7 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
     ids.reverse();
     ids.truncate(config.max_messages.max(1));
     let mut attachments = Vec::new();
+    let mut failed_attachments = Vec::new();
 
     for chunk in ids.chunks(50) {
         let sequence_set = chunk
@@ -310,8 +316,15 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
         let messages = session.fetch(&sequence_set, "RFC822")?;
         for message in messages.iter() {
             if let Some(body) = message.body() {
-                let parsed = parse_mail(body)?;
-                collect_attachments(&parsed, &mut attachments)?;
+                match parse_mail(body) {
+                    Ok(parsed) => {
+                        collect_attachments(&parsed, &mut attachments, &mut failed_attachments)?
+                    }
+                    Err(err) => failed_attachments.push(format!(
+                        "message {}: email parse error: {}",
+                        message.message, err
+                    )),
+                }
             }
         }
     }
@@ -328,6 +341,7 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
         messages_matched: matched_ids.len(),
         attachments_found,
         attachments,
+        failed_attachments,
     })
 }
 
@@ -346,26 +360,60 @@ fn imap_search_query(config: &MailboxConfig) -> String {
 fn collect_attachments(
     message: &ParsedMail<'_>,
     attachments: &mut Vec<MailboxAttachment>,
+    failed_attachments: &mut Vec<String>,
 ) -> Result<()> {
     if message.subparts.is_empty() {
         if let Some(filename) = attachment_filename(message, attachments.len() + 1) {
             if is_supported_report_filename(&filename)
                 || is_supported_mimetype(&message.ctype.mimetype)
             {
-                attachments.push(MailboxAttachment {
-                    filename,
-                    bytes: message.get_body_raw()?,
-                });
+                match attachment_body_bytes(message, &filename) {
+                    Ok(bytes) => attachments.push(MailboxAttachment { filename, bytes }),
+                    Err(err) => failed_attachments.push(format!("{}: {}", filename, err)),
+                }
             }
         }
         return Ok(());
     }
 
     for part in &message.subparts {
-        collect_attachments(part, attachments)?;
+        collect_attachments(part, attachments, failed_attachments)?;
     }
 
     Ok(())
+}
+
+fn attachment_body_bytes(message: &ParsedMail<'_>, filename: &str) -> Result<Vec<u8>> {
+    match message.get_body_encoded() {
+        Body::Base64(body) => match body.get_decoded() {
+            Ok(bytes) => Ok(bytes),
+            Err(strict_err) => decode_lenient_base64(body.get_raw()).map_err(|fallback_err| {
+                AppError::Mailbox(format!(
+                    "could not decode base64 body for {filename} ({strict_err}; fallback failed: {fallback_err})"
+                ))
+            }),
+        },
+        Body::QuotedPrintable(body) => Ok(body.get_decoded()?),
+        Body::SevenBit(body) | Body::EightBit(body) => Ok(body.get_raw().to_vec()),
+        Body::Binary(body) => Ok(body.get_raw().to_vec()),
+    }
+}
+
+fn decode_lenient_base64(raw: &[u8]) -> std::result::Result<Vec<u8>, base64::DecodeError> {
+    let mut cleaned = raw
+        .iter()
+        .filter_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' => Some(*byte),
+            b'-' => Some(b'+'),
+            b'_' => Some(b'/'),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let padding = (4 - cleaned.len() % 4) % 4;
+    cleaned.extend(std::iter::repeat_n(b'=', padding));
+
+    BASE64_STANDARD.decode(cleaned)
 }
 
 fn attachment_filename(message: &ParsedMail<'_>, index: usize) -> Option<String> {
@@ -458,9 +506,40 @@ mod tests {
         let raw = b"From: reports@example.test\r\nSubject: DMARC\r\nContent-Type: multipart/mixed; boundary=\"x\"\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nreport attached\r\n--x\r\nContent-Type: application/gzip; name=\"report.xml.gz\"\r\nContent-Disposition: attachment; filename=\"report.xml.gz\"\r\nContent-Transfer-Encoding: base64\r\n\r\nH4sIAAAAAAAA/wMAAAAAAAAAAAA=\r\n--x--\r\n";
         let parsed = parse_mail(raw).expect("parse mail");
         let mut attachments = Vec::new();
-        collect_attachments(&parsed, &mut attachments).expect("collect attachments");
+        let mut failed_attachments = Vec::new();
+        collect_attachments(&parsed, &mut attachments, &mut failed_attachments)
+            .expect("collect attachments");
 
         assert_eq!(attachments.len(), 1);
         assert_eq!(attachments[0].filename, "report.xml.gz");
+        assert!(failed_attachments.is_empty());
+    }
+
+    #[test]
+    fn decodes_base64_attachment_with_invalid_symbol() {
+        let raw = b"From: reports@example.test\r\nSubject: DMARC\r\nContent-Type: multipart/mixed; boundary=\"x\"\r\n\r\n--x\r\nContent-Type: application/xml; name=\"report.xml\"\r\nContent-Disposition: attachment; filename=\"report.xml\"\r\nContent-Transfer-Encoding: base64\r\n\r\nPGZv#bz48L2Zvbz4=\r\n--x--\r\n";
+        let parsed = parse_mail(raw).expect("parse mail");
+        let mut attachments = Vec::new();
+        let mut failed_attachments = Vec::new();
+        collect_attachments(&parsed, &mut attachments, &mut failed_attachments)
+            .expect("collect attachments");
+
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].bytes, b"<foo></foo>");
+        assert!(failed_attachments.is_empty());
+    }
+
+    #[test]
+    fn reports_unrecoverable_base64_attachment_without_failing_collection() {
+        let raw = b"From: reports@example.test\r\nSubject: DMARC\r\nContent-Type: multipart/mixed; boundary=\"x\"\r\n\r\n--x\r\nContent-Type: application/xml; name=\"report.xml\"\r\nContent-Disposition: attachment; filename=\"report.xml\"\r\nContent-Transfer-Encoding: base64\r\n\r\nA\r\n--x--\r\n";
+        let parsed = parse_mail(raw).expect("parse mail");
+        let mut attachments = Vec::new();
+        let mut failed_attachments = Vec::new();
+        collect_attachments(&parsed, &mut attachments, &mut failed_attachments)
+            .expect("collect attachments");
+
+        assert!(attachments.is_empty());
+        assert_eq!(failed_attachments.len(), 1);
+        assert!(failed_attachments[0].contains("report.xml"));
     }
 }

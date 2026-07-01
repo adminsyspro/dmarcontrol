@@ -985,12 +985,14 @@ fn strongest_policy<'a>(left: &'a str, right: &'a str) -> &'a str {
 
 fn next_step(policy: &str, compliance: f64) -> &'static str {
     match (policy, compliance) {
-        ("reject", _) => "Monitor drift and new senders",
-        ("quarantine", rate) if rate >= 98.0 => "Move to p=reject",
-        ("quarantine", _) => "Fix remaining alignment failures",
-        ("none", rate) if rate >= 98.0 => "Pilot p=quarantine",
-        ("none", _) => "Validate legitimate senders",
-        _ => "Import more reports",
+        ("reject", _) => "Keep monitoring for new senders and alignment drift",
+        ("quarantine", rate) if rate >= 98.0 => {
+            "Ready to switch from quarantine to reject enforcement"
+        }
+        ("quarantine", _) => "Fix DMARC alignment failures before moving to reject",
+        ("none", rate) if rate >= 98.0 => "Start a low-risk quarantine pilot for this domain",
+        ("none", _) => "Identify legitimate senders and fix SPF/DKIM alignment",
+        _ => "Import more reports before deciding the next policy change",
     }
 }
 

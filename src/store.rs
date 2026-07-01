@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::auth::{self, AuthUser, LocalUser, OidcSettings};
+use crate::auth::{self, AuthUser, LocalUser, ManagedUser, OidcSettings};
 use crate::dmarc::{PublishedPolicy, Report};
 use crate::error::{AppError, Result};
 use crate::mailbox::MailboxSettings;
@@ -203,6 +203,157 @@ impl Store {
         Ok(count > 0)
     }
 
+    pub async fn list_users(&self) -> Result<Vec<ManagedUser>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, username, email, display_name, role, auth_type, active
+            FROM users
+            ORDER BY active DESC, username COLLATE NOCASE ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([], row_to_managed_user)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(AppError::from)
+    }
+
+    pub async fn user_by_id(&self, id: &str) -> Result<Option<ManagedUser>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        conn.query_row(
+            r#"
+            SELECT id, username, email, display_name, role, auth_type, active
+            FROM users
+            WHERE id = ?1
+            "#,
+            params![id],
+            row_to_managed_user,
+        )
+        .optional()
+        .map_err(AppError::from)
+    }
+
+    pub async fn username_exists(&self, username: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users WHERE username = ?1",
+            params![username],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub async fn active_user_count(&self) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM users WHERE active = 1", [], |row| {
+                row.get(0)
+            })?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub async fn create_local_user(
+        &self,
+        id: &str,
+        username: &str,
+        email: &str,
+        display_name: &str,
+        role: &str,
+        active: bool,
+        password_hash: &str,
+    ) -> Result<ManagedUser> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        conn.execute(
+            r#"
+            INSERT INTO users
+                (id, username, email, display_name, role, active, password_hash, auth_type)
+            VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'local')
+            "#,
+            params![
+                id,
+                username,
+                email,
+                display_name,
+                role,
+                if active { 1 } else { 0 },
+                password_hash
+            ],
+        )?;
+        Ok(ManagedUser {
+            id: id.to_string(),
+            username: username.to_string(),
+            email: email.to_string(),
+            display_name: display_name.to_string(),
+            role: role.to_string(),
+            auth_type: "local".to_string(),
+            active,
+        })
+    }
+
+    pub async fn update_user(
+        &self,
+        id: &str,
+        email: &str,
+        display_name: &str,
+        role: &str,
+        active: bool,
+    ) -> Result<Option<ManagedUser>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        let changed = conn.execute(
+            r#"
+            UPDATE users
+            SET email = ?1,
+                display_name = ?2,
+                role = ?3,
+                active = ?4,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?5
+            "#,
+            params![email, display_name, role, if active { 1 } else { 0 }, id],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        conn.query_row(
+            r#"
+            SELECT id, username, email, display_name, role, auth_type, active
+            FROM users
+            WHERE id = ?1
+            "#,
+            params![id],
+            row_to_managed_user,
+        )
+        .optional()
+        .map_err(AppError::from)
+    }
+
+    pub async fn delete_user(&self, id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        let changed = conn.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+        Ok(changed > 0)
+    }
+
     pub async fn find_local_user(&self, username: &str) -> Result<Option<LocalUser>> {
         let conn = self
             .conn
@@ -224,6 +375,54 @@ impl Store {
         )
         .optional()
         .map_err(AppError::from)
+    }
+
+    pub async fn find_local_user_by_id(&self, id: &str) -> Result<Option<LocalUser>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        conn.query_row(
+            r#"
+            SELECT id, username, email, display_name, role, auth_type, password_hash
+            FROM users
+            WHERE id = ?1
+              AND active = 1
+              AND auth_type = 'local'
+              AND password_hash IS NOT NULL
+            "#,
+            params![id],
+            |row| {
+                Ok(LocalUser {
+                    user: row_to_auth_user(row)?,
+                    password_hash: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(AppError::from)
+    }
+
+    pub async fn update_local_user_password_hash(
+        &self,
+        id: &str,
+        password_hash: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Mailbox("database lock is poisoned".to_string()))?;
+        let changed = conn.execute(
+            r#"
+            UPDATE users
+            SET password_hash = ?1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?2
+              AND auth_type = 'local'
+            "#,
+            params![password_hash, id],
+        )?;
+        Ok(changed > 0)
     }
 
     pub async fn user_by_session_hash(&self, token_hash: &str) -> Result<Option<AuthUser>> {
@@ -464,6 +663,19 @@ fn row_to_auth_user(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuthUser> {
         display_name: row.get(3)?,
         role: row.get(4)?,
         auth_type: row.get(5)?,
+    })
+}
+
+fn row_to_managed_user(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagedUser> {
+    let active: i64 = row.get(6)?;
+    Ok(ManagedUser {
+        id: row.get(0)?,
+        username: row.get(1)?,
+        email: row.get(2)?,
+        display_name: row.get(3)?,
+        role: row.get(4)?,
+        auth_type: row.get(5)?,
+        active: active != 0,
     })
 }
 

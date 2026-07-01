@@ -86,6 +86,19 @@
               </a>
             </li>
             <li class="nav-item">
+              <a class="nav-link" href="#authentication">
+                <span class="sidebar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M16 11a4 4 0 1 0-8 0" />
+                    <path d="M5 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2" />
+                    <path d="M18 8h3" />
+                    <path d="M19.5 6.5v3" />
+                  </svg>
+                </span>
+                <span class="item-name">Authentication</span>
+              </a>
+            </li>
+            <li class="nav-item">
               <a class="nav-link" href="#settings">
                 <span class="sidebar-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" focusable="false">
@@ -181,6 +194,17 @@
                   </svg>
                   Settings
                 </a>
+                <a id="change-password-link" class="profile-dropdown-item" href="#authentication">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                    <path d="M15 7a4 4 0 1 0-3.5 4" />
+                    <path d="M11 11l9-9" />
+                    <path d="M16 2h4v4" />
+                    <path d="M7 14v5" />
+                    <path d="M5 16h4" />
+                    <path d="M6 22h2" />
+                  </svg>
+                  Change password
+                </a>
                 <button id="logout-button" class="profile-dropdown-item profile-dropdown-danger" type="button">
                   <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -273,14 +297,39 @@
           </div>
         </section>
 
+        <section class="row kpi-visual-row">
+          <div class="col-xl-4">
+            <div class="card kpi-visual-card">
+              <div class="card-header split-card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Policy posture</h4>
+                </div>
+                <p class="mb-0 text-muted">Domains by enforcement mode</p>
+              </div>
+              <div id="policy-posture-visual" class="card-body kpi-visual-body"></div>
+            </div>
+          </div>
+          <div class="col-xl-8">
+            <div class="card kpi-visual-card">
+              <div class="card-header split-card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Score distribution</h4>
+                </div>
+                <p class="mb-0 text-muted">Domains grouped by score range</p>
+              </div>
+              <div id="score-histogram-visual" class="card-body kpi-visual-body"></div>
+            </div>
+          </div>
+        </section>
+
         <section class="row equal-row">
           <div class="col-xl-8">
             <div class="card equal-card">
-              <div class="card-header d-flex justify-content-between flex-wrap">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Compliance trend</h4>
-                  <p class="mb-0 text-muted">Aggregate volume and aligned traffic over time</p>
                 </div>
+                <p class="mb-0 text-muted">Aggregate volume and aligned traffic over time</p>
                 <div class="trend-range" role="group" aria-label="Timeline range">
                   <button type="button" data-trend-range="1d" aria-pressed="false">24h</button>
                   <button type="button" data-trend-range="7d" aria-pressed="false">7j</button>
@@ -295,11 +344,11 @@
           </div>
           <div class="col-xl-4">
             <div class="card equal-card">
-              <div class="card-header">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Protocol coverage</h4>
-                  <p class="mb-0 text-muted">Derived from aggregate reports</p>
                 </div>
+                <p class="mb-0 text-muted">Derived from aggregate reports</p>
               </div>
               <div id="protocols" class="list-group list-group-flush"></div>
             </div>
@@ -309,12 +358,11 @@
         <section class="row equal-row">
           <div class="col-xl-8">
             <div class="card equal-card">
-              <div class="card-header d-flex justify-content-between flex-wrap">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Source geography</h4>
-                  <p class="mb-0 text-muted">Country-level source IP intelligence from IP66</p>
                 </div>
-                <span id="geo-summary" class="text-muted small"></span>
+                <p class="mb-0 text-muted">Country-level source IP intelligence from IP66</p>
               </div>
               <div class="card-body">
                 <div id="geo-map" class="geo-map" aria-label="Source geography map"></div>
@@ -323,11 +371,11 @@
           </div>
           <div class="col-xl-4">
             <div class="card equal-card">
-              <div class="card-header">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Top locations</h4>
-                  <p class="mb-0 text-muted">Grouped by IP66 country geolocation</p>
                 </div>
+                <p class="mb-0 text-muted">Grouped by IP66 country geolocation</p>
               </div>
               <div id="geo-list" class="list-group list-group-flush"></div>
             </div>
@@ -337,11 +385,18 @@
         <section id="domains" class="row">
           <div class="col-12">
             <div class="card">
-              <div class="card-header">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Domains</h4>
-                  <p class="mb-0 text-muted">Score, policy and recommended next step</p>
                 </div>
+                <label class="domains-search" for="domains-search-input">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                    <path d="M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15z" />
+                    <path d="M16 16l5 5" />
+                  </svg>
+                  <input id="domains-search-input" type="search" autocomplete="off" placeholder="Search domains" aria-label="Search domains">
+                </label>
+                <p class="mb-0 text-muted">Score, policy and recommended next step</p>
               </div>
               <div class="card-body px-0">
                 <div class="table-responsive">
@@ -383,11 +438,11 @@
         <section id="sources" class="row">
           <div class="col-12">
             <div class="card">
-              <div class="card-header">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Sending sources</h4>
-                  <p class="mb-0 text-muted">Named senders inferred from SPF and DKIM evidence</p>
                 </div>
+                <p class="mb-0 text-muted">Named senders inferred from SPF and DKIM evidence</p>
               </div>
               <div id="sources-list" class="source-list"></div>
             </div>
@@ -397,11 +452,11 @@
         <section id="remediation" class="row">
           <div class="col-12">
             <div class="card">
-              <div class="card-header">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Action plan</h4>
-                  <p class="mb-0 text-muted">Prioritized fixes before enforcement</p>
                 </div>
+                <p class="mb-0 text-muted">Prioritized fixes before enforcement</p>
               </div>
               <div id="actions-list" class="action-list"></div>
             </div>
@@ -411,11 +466,11 @@
         <section id="evidence" class="row">
           <div class="col-12">
             <div class="card">
-              <div class="card-header d-flex justify-content-between flex-wrap">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Compliance evidence</h4>
-                  <p class="mb-0 text-muted">Audit-oriented snapshot</p>
                 </div>
+                <p class="mb-0 text-muted">Audit-oriented snapshot</p>
                 <span id="upload-status" class="text-muted small"></span>
               </div>
               <div class="card-body">
@@ -445,14 +500,14 @@
           </div>
         </section>
 
-        <section id="settings" class="row">
+        <section id="settings" class="row" hidden>
           <div class="col-12">
             <div class="card">
-              <div class="card-header d-flex justify-content-between flex-wrap">
+              <div class="card-header split-card-header">
                 <div class="header-title">
                   <h4 class="card-title mb-1">Settings</h4>
-                  <p class="mb-0 text-muted">Mailbox connection used to collect DMARC aggregate reports</p>
                 </div>
+                <p class="mb-0 text-muted">Mailbox connection used to collect DMARC aggregate reports</p>
                 <span id="settings-status" class="text-muted small"></span>
               </div>
               <div class="card-body">
@@ -524,12 +579,67 @@
                 </form>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section id="authentication" class="row" hidden>
+          <div class="col-12">
             <div class="card">
-              <div class="card-header d-flex justify-content-between flex-wrap">
+              <div class="card-header split-card-header">
                 <div class="header-title">
-                  <h4 class="card-title mb-1">Authentication</h4>
-                  <p class="mb-0 text-muted">Local accounts and OpenID Connect single sign-on</p>
+                  <h4 class="card-title mb-1">Users</h4>
                 </div>
+                <p class="mb-0 text-muted">Local application accounts with dashboard access</p>
+                <span id="user-management-status" class="text-muted small"></span>
+              </div>
+              <div class="card-body">
+                <form id="create-user-form" class="row g-3 border-bottom pb-4 mb-4">
+                  <div class="col-md-3">
+                    <label class="form-label" for="new-user-username">Username</label>
+                    <input id="new-user-username" class="form-control" autocomplete="username" required>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label" for="new-user-display-name">Display name</label>
+                    <input id="new-user-display-name" class="form-control" autocomplete="name">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label" for="new-user-email">Email</label>
+                    <input id="new-user-email" class="form-control" type="email" autocomplete="email">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label" for="new-user-password">Temporary password</label>
+                    <input id="new-user-password" class="form-control" type="password" autocomplete="new-password" minlength="8" required>
+                  </div>
+                  <div class="col-12 d-flex align-items-center gap-4 flex-wrap">
+                    <div class="form-check form-switch">
+                      <input id="new-user-active" class="form-check-input" type="checkbox" checked>
+                      <label class="form-check-label" for="new-user-active">Active</label>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Create user</button>
+                  </div>
+                </form>
+                <div class="table-responsive">
+                  <table class="table table-striped align-middle mb-0 users-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Password reset</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="users-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header split-card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Single sign-on</h4>
+                </div>
+                <p class="mb-0 text-muted">OpenID Connect provider settings</p>
                 <span id="auth-settings-status" class="text-muted small"></span>
               </div>
               <div class="card-body">
@@ -625,6 +735,48 @@
           <button id="protocol-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
         </header>
         <div id="protocol-modal-body" class="domain-modal-body"></div>
+      </section>
+    </div>
+
+    <div id="source-detail-modal" class="domain-modal" hidden>
+      <div class="domain-modal-backdrop" data-source-modal-close></div>
+      <section class="domain-modal-panel action-modal-panel" role="dialog" aria-modal="true" aria-labelledby="source-modal-title">
+        <header class="domain-modal-header">
+          <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Sending sources</p>
+            <h3 id="source-modal-title" class="mb-0">Source group</h3>
+          </div>
+          <button id="source-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
+        </header>
+        <div id="source-modal-body" class="domain-modal-body"></div>
+      </section>
+    </div>
+
+    <div id="action-detail-modal" class="domain-modal" hidden>
+      <div class="domain-modal-backdrop" data-action-modal-close></div>
+      <section class="domain-modal-panel action-modal-panel" role="dialog" aria-modal="true" aria-labelledby="action-modal-title">
+        <header class="domain-modal-header">
+          <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Action plan</p>
+            <h3 id="action-modal-title" class="mb-0">Action</h3>
+          </div>
+          <button id="action-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
+        </header>
+        <div id="action-modal-body" class="domain-modal-body"></div>
+      </section>
+    </div>
+
+    <div id="score-detail-modal" class="domain-modal" hidden>
+      <div class="domain-modal-backdrop" data-score-modal-close></div>
+      <section class="domain-modal-panel score-modal-panel" role="dialog" aria-modal="true" aria-labelledby="score-modal-title">
+        <header class="domain-modal-header">
+          <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Score distribution</p>
+            <h3 id="score-modal-title" class="mb-0">Score range</h3>
+          </div>
+          <button id="score-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
+        </header>
+        <div id="score-modal-body" class="domain-modal-body"></div>
       </section>
     </div>
 

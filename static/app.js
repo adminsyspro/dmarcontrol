@@ -20,10 +20,12 @@ const state = {
   reports: [],
   geo: { points: [], unresolved_sources: 0 },
   user: null,
+  users: [],
   oidcSettings: null,
   mailboxSchedulerStatus: null,
   trendRange: "30d",
   domainPage: 1,
+  domainSearch: "",
   domainsPerPage: 12,
   domainSort: { key: "messages", direction: "desc" },
 };
@@ -33,6 +35,7 @@ let geoLayerGroup = null;
 let activeTooltipTrigger = null;
 let appTooltip = null;
 let manualSidebarActiveUntil = 0;
+let currentPage = "dashboard";
 let searchTimer = null;
 let searchAbortController = null;
 let searchResults = [];
@@ -110,13 +113,12 @@ sidebarLinks.forEach((link) => {
   link.addEventListener("click", (event) => {
     event.preventDefault();
     const hash = link.getAttribute("href");
+    showPageForHash(hash);
     const target = document.querySelector(hash);
-    if (!target) return;
-
     manualSidebarActiveUntil = Date.now() + 900;
     setActiveSidebarLink(hash);
-    history.pushState(null, "", hash);
-    target.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+    history.pushState(null, "", urlForHash(hash));
+    target?.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
   });
 });
 
@@ -126,7 +128,7 @@ if ("IntersectionObserver" in window) {
       const visible = entries
         .filter((entry) => entry.isIntersecting)
         .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
-      if (visible && Date.now() > manualSidebarActiveUntil) {
+      if (visible && currentPage === "dashboard" && Date.now() > manualSidebarActiveUntil) {
         setActiveSidebarLink(`#${visible.target.id}`);
       }
     },
@@ -151,6 +153,12 @@ document.querySelectorAll("[data-domain-sort]").forEach((button) => {
   });
 });
 
+document.getElementById("domains-search-input").addEventListener("input", (event) => {
+  state.domainSearch = event.target.value.trim().toLowerCase();
+  state.domainPage = 1;
+  renderDomains();
+});
+
 document.querySelectorAll("[data-trend-range]").forEach((button) => {
   button.addEventListener("click", () => {
     state.trendRange = button.dataset.trendRange;
@@ -163,10 +171,19 @@ document.getElementById("domain-modal-close").addEventListener("click", closeDom
 document.querySelector("[data-domain-modal-close]").addEventListener("click", closeDomainModal);
 document.getElementById("protocol-modal-close").addEventListener("click", closeProtocolModal);
 document.querySelector("[data-protocol-modal-close]").addEventListener("click", closeProtocolModal);
+document.getElementById("source-modal-close").addEventListener("click", closeSourceModal);
+document.querySelector("[data-source-modal-close]").addEventListener("click", closeSourceModal);
+document.getElementById("action-modal-close").addEventListener("click", closeActionModal);
+document.querySelector("[data-action-modal-close]").addEventListener("click", closeActionModal);
+document.getElementById("score-modal-close").addEventListener("click", closeScoreModal);
+document.querySelector("[data-score-modal-close]").addEventListener("click", closeScoreModal);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeDomainModal();
     closeProtocolModal();
+    closeSourceModal();
+    closeActionModal();
+    closeScoreModal();
   }
 });
 
@@ -188,6 +205,8 @@ document.addEventListener("focusout", (event) => {
 });
 window.addEventListener("scroll", hideAppTooltip, true);
 window.addEventListener("resize", hideAppTooltip);
+window.addEventListener("hashchange", () => showPageForHash(currentNavigationHash(), true));
+window.addEventListener("popstate", () => showPageForHash(currentNavigationHash(), true));
 
 document.getElementById("mailbox-settings-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -261,6 +280,65 @@ document.getElementById("logout-button").addEventListener("click", async () => {
   window.location.href = "/login";
 });
 
+document.getElementById("change-password-link").addEventListener("click", () => {
+  const menu = document.getElementById("profile-dropdown");
+  menu.hidden = true;
+  document.getElementById("profile-toggle").setAttribute("aria-expanded", "false");
+  window.setTimeout(() => {
+    document.querySelector(`tr[data-user-id="${state.user?.id}"] [data-user-field='password']`)?.focus();
+  }, 250);
+});
+
+document.getElementById("create-user-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const status = document.getElementById("user-management-status");
+  const password = document.getElementById("new-user-password").value;
+  if (password.length < 8) {
+    status.textContent = "Password must be at least 8 characters.";
+    return;
+  }
+
+  status.textContent = "Creating user...";
+  const response = await fetch("/api/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: document.getElementById("new-user-username").value.trim(),
+      display_name: document.getElementById("new-user-display-name").value.trim(),
+      email: document.getElementById("new-user-email").value.trim(),
+      password,
+      active: document.getElementById("new-user-active").checked,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "User creation failed" }));
+    status.textContent = error.error;
+    return;
+  }
+
+  document.getElementById("create-user-form").reset();
+  document.getElementById("new-user-active").checked = true;
+  status.textContent = "User created";
+  await refreshUsers();
+});
+
+document.getElementById("users-body").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-user-action]");
+  if (!button) return;
+
+  const row = button.closest("tr[data-user-id]");
+  const userId = row?.dataset.userId;
+  if (!userId) return;
+
+  if (button.dataset.userAction === "save") {
+    await saveManagedUser(row);
+  }
+  if (button.dataset.userAction === "delete") {
+    await deleteManagedUser(row);
+  }
+});
+
 document.getElementById("oidc-settings-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const status = document.getElementById("auth-settings-status");
@@ -285,7 +363,7 @@ document.getElementById("oidc-settings-form").addEventListener("submit", async (
 });
 
 async function load() {
-  const [session, overview, domains, sources, actions, timeline, reports, geo, mailboxSettings, mailboxSchedulerStatus, oidcSettings] = await Promise.all([
+  const [session, overview, domains, sources, actions, timeline, reports, geo, mailboxSettings, mailboxSchedulerStatus, oidcSettings, users] = await Promise.all([
     fetchJson("/api/auth/session"),
     fetchJson("/api/overview"),
     fetchJson("/api/domains"),
@@ -297,9 +375,11 @@ async function load() {
     fetchJson("/api/settings/mailbox"),
     fetchJson("/api/mailbox/scheduler/status"),
     fetchJson("/api/settings/oidc"),
+    fetchJson("/api/users").catch(() => []),
   ]);
 
   state.user = session.user;
+  state.users = users;
   state.overview = overview;
   state.domains = domains;
   state.sources = sources;
@@ -324,6 +404,8 @@ async function load() {
   fillMailboxForm(mailboxSettings);
   renderMailboxSchedulerStatus(mailboxSchedulerStatus);
   fillOidcForm(oidcSettings);
+  renderUsers();
+  showPageForHash(currentNavigationHash(), true);
 }
 
 async function fetchJson(url) {
@@ -424,17 +506,171 @@ async function openSearchResult(result) {
 }
 
 function revealSection(hash) {
+  showPageForHash(hash);
   const target = document.querySelector(hash);
   if (!target) return;
   setActiveSidebarLink(hash);
-  history.pushState(null, "", hash);
+  history.pushState(null, "", urlForHash(hash));
   target.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+}
+
+function showPageForHash(hash, scrollIntoView = false) {
+  const normalizedHash = hash || "#overview";
+  const page = pageForHash(normalizedHash);
+  currentPage = page;
+
+  document.querySelectorAll(".content-inner > section").forEach((section) => {
+    const isStandalonePage = section.id === "settings" || section.id === "authentication";
+    section.hidden = page === "dashboard" ? isStandalonePage : section.id !== page;
+  });
+
+  setActiveSidebarLink(normalizedHash);
+
+  if (scrollIntoView) {
+    const target = document.querySelector(normalizedHash);
+    target?.scrollIntoView({ behavior: "auto", block: "start", inline: "nearest" });
+  }
+}
+
+function pageForHash(hash) {
+  if (hash === "#settings") return "settings";
+  if (hash === "#authentication") return "authentication";
+  return "dashboard";
+}
+
+function currentNavigationHash() {
+  if (window.location.hash) return window.location.hash;
+  if (window.location.pathname === "/settings") return "#settings";
+  if (window.location.pathname === "/authentication") return "#authentication";
+  return "#overview";
+}
+
+function urlForHash(hash) {
+  if (hash === "#settings") return "/settings";
+  if (hash === "#authentication") return "/authentication";
+  if (hash === "#overview") return "/";
+  return `/${hash}`;
 }
 
 async function refreshMailboxSchedulerStatus() {
   const schedulerStatus = await fetchJson("/api/mailbox/scheduler/status");
   state.mailboxSchedulerStatus = schedulerStatus;
   renderMailboxSchedulerStatus(schedulerStatus);
+}
+
+async function refreshUsers() {
+  state.users = await fetchJson("/api/users");
+  const current = state.users.find((user) => user.id === state.user?.id);
+  if (current) {
+    state.user = {
+      id: current.id,
+      username: current.username,
+      email: current.email,
+      display_name: current.display_name,
+      role: current.role,
+      auth_type: current.auth_type,
+    };
+  }
+  renderUsers();
+}
+
+function renderUsers() {
+  const body = document.getElementById("users-body");
+  if (!body) return;
+  if (!state.users.length) {
+    body.innerHTML = `<tr><td colspan="5">No users found.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = state.users
+    .map((user) => {
+      const isCurrentUser = state.user?.id === user.id;
+      const isLocal = user.auth_type === "local";
+      return `
+        <tr data-user-id="${escapeHtml(user.id)}" data-auth-type="${escapeHtml(user.auth_type)}">
+          <td>
+            <strong>${escapeHtml(user.username)}</strong>
+            ${isCurrentUser ? `<span class="badge bg-primary ms-2">You</span>` : ""}
+            <div class="row g-2 mt-2">
+              <div class="col-md-6">
+                <input class="form-control form-control-sm" data-user-field="display_name" value="${escapeHtml(user.display_name)}" aria-label="Display name for ${escapeHtml(user.username)}">
+              </div>
+              <div class="col-md-6">
+                <input class="form-control form-control-sm" data-user-field="email" type="email" value="${escapeHtml(user.email)}" aria-label="Email for ${escapeHtml(user.username)}">
+              </div>
+            </div>
+          </td>
+          <td><span class="status-badge neutral">${escapeHtml(user.auth_type.toUpperCase())}</span></td>
+          <td>
+            <div class="form-check form-switch">
+              <input class="form-check-input" data-user-field="active" type="checkbox" ${user.active ? "checked" : ""} ${isCurrentUser ? "disabled" : ""} aria-label="Active status for ${escapeHtml(user.username)}">
+            </div>
+          </td>
+          <td class="user-password-cell">
+            <div class="user-inline-control">
+              <input class="form-control form-control-sm" data-user-field="password" type="password" autocomplete="new-password" placeholder="${isCurrentUser ? "New password" : isLocal ? "Leave blank" : "OIDC managed"}" ${isLocal ? "" : "disabled"}>
+            </div>
+          </td>
+          <td class="text-end">
+            <div class="user-inline-control d-flex justify-content-end gap-2 flex-wrap">
+              <button class="btn btn-sm btn-primary" type="button" data-user-action="save">Save</button>
+              <button class="btn btn-sm btn-outline-danger" type="button" data-user-action="delete" ${isCurrentUser ? "disabled" : ""}>Delete</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+async function saveManagedUser(row) {
+  const status = document.getElementById("user-management-status");
+  const userId = row.dataset.userId;
+  const password = row.querySelector("[data-user-field='password']").value;
+  if (password && password.length < 8) {
+    status.textContent = "Password must be at least 8 characters.";
+    return;
+  }
+
+  status.textContent = "Saving user...";
+  const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      display_name: row.querySelector("[data-user-field='display_name']").value.trim(),
+      email: row.querySelector("[data-user-field='email']").value.trim(),
+      role: "Administrator",
+      active: row.querySelector("[data-user-field='active']").checked,
+      password,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "User save failed" }));
+    status.textContent = error.error;
+    return;
+  }
+
+  status.textContent = "User saved";
+  await refreshUsers();
+  renderProfile();
+}
+
+async function deleteManagedUser(row) {
+  const status = document.getElementById("user-management-status");
+  const user = state.users.find((item) => item.id === row.dataset.userId);
+  if (!user || !window.confirm(`Delete user ${user.username}?`)) return;
+
+  status.textContent = "Deleting user...";
+  const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "User deletion failed" }));
+    status.textContent = error.error;
+    return;
+  }
+
+  status.textContent = "User deleted";
+  await refreshUsers();
 }
 
 function setActiveSidebarLink(hash) {
@@ -482,6 +718,203 @@ function renderOverview() {
   const scoreRing = document.getElementById("score-ring");
   scoreRing.style.setProperty("--score", state.overview.score);
   scoreRing.style.setProperty("--score-color", scoreColor(state.overview.score));
+  renderKpiVisuals();
+}
+
+function renderKpiVisuals() {
+  renderPolicyPostureVisual();
+  renderScoreHistogramVisual();
+}
+
+function renderPolicyPostureVisual() {
+  const target = document.getElementById("policy-posture-visual");
+  if (!target) return;
+  if (!state.domains.length) {
+    target.innerHTML = `<div class="empty">No domain policy data yet.</div>`;
+    return;
+  }
+
+  const policies = ["reject", "quarantine", "none", "unknown"];
+  const counts = new Map(policies.map((policy) => [policy, 0]));
+  state.domains.forEach((domain) => {
+    const policy = policies.includes(domain.policy) ? domain.policy : "unknown";
+    counts.set(policy, (counts.get(policy) || 0) + 1);
+  });
+
+  const total = state.domains.length || 1;
+  let cursor = 0;
+  const segments = policies
+    .map((policy) => {
+      const value = counts.get(policy) || 0;
+      if (!value) return "";
+      const start = cursor;
+      cursor += (value / total) * 100;
+      return `${policyChartColor(policy)} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+    })
+    .filter(Boolean)
+    .join(", ");
+  const rejectCount = counts.get("reject") || 0;
+  const readyCount = rejectCount + (counts.get("quarantine") || 0);
+
+  target.innerHTML = `
+    <div class="policy-donut-wrap">
+      <div class="policy-donut" style="--policy-donut: ${segments || "var(--dm-line) 0% 100%"}" role="img" aria-label="Policy posture distribution">
+        <span>${Math.round((readyCount / total) * 100)}%</span>
+        <small>enforced</small>
+      </div>
+      <div class="policy-donut-legend">
+        ${policies
+          .map((policy) => `
+            <span>
+              <i style="background: ${policyChartColor(policy)}"></i>
+              ${escapeHtml(policy)}
+              <strong>${formatNumber.format(counts.get(policy) || 0)}</strong>
+            </span>
+          `)
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderScoreHistogramVisual() {
+  const target = document.getElementById("score-histogram-visual");
+  if (!target) return;
+  if (!state.domains.length) {
+    target.innerHTML = `<div class="empty">No score distribution yet.</div>`;
+    return;
+  }
+
+  const bins = [
+    { label: "0-49", detail: "Critical", min: 0, max: 49, status: "bad" },
+    { label: "50-69", detail: "Needs work", min: 50, max: 69, status: "warn" },
+    { label: "70-89", detail: "Close", min: 70, max: 89, status: "ok" },
+    { label: "90-100", detail: "Healthy", min: 90, max: 100, status: "good" },
+  ].map((bin) => ({
+    ...bin,
+    domains: state.domains
+      .filter((domain) => Number(domain.score || 0) >= bin.min && Number(domain.score || 0) <= bin.max)
+      .sort((left, right) => Number(right.messages || 0) - Number(left.messages || 0)),
+  }));
+  const maxCount = Math.max(...bins.map((bin) => bin.domains.length), 1);
+
+  target.innerHTML = `
+    <div class="score-distribution-list" aria-label="Domain score distribution">
+      ${bins
+        .map((bin, index) => {
+          const width = Math.max(3, (bin.domains.length / maxCount) * 100);
+          return `
+            <button class="score-range-row ${bin.status}" type="button" data-score-bin="${index}" aria-label="Open ${escapeHtml(bin.detail)} score range details">
+              <div class="score-range-head">
+                <span>${escapeHtml(bin.detail)}</span>
+                <strong>${escapeHtml(bin.label)}</strong>
+              </div>
+              <div class="score-range-count">
+                <strong>${formatNumber.format(bin.domains.length)}</strong>
+                <span>${bin.domains.length === 1 ? "domain" : "domains"}</span>
+              </div>
+              <div class="score-range-bar" aria-hidden="true">
+                <i style="width: ${width}%"></i>
+              </div>
+              <div class="score-range-action">
+                <span>View details</span>
+              </div>
+            </button>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+
+  target.querySelectorAll("[data-score-bin]").forEach((button) => {
+    button.addEventListener("click", () => openScoreModal(bins[Number(button.dataset.scoreBin)]));
+  });
+}
+
+function openScoreModal(bin) {
+  if (!bin) return;
+  const modal = document.getElementById("score-detail-modal");
+  const title = document.getElementById("score-modal-title");
+  const body = document.getElementById("score-modal-body");
+  title.textContent = `${bin.detail} · ${bin.label}`;
+  body.innerHTML = renderScoreRangeDetail(bin);
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+
+  body.querySelectorAll("[data-score-domain]").forEach((button) => {
+    button.addEventListener("click", () => {
+      closeScoreModal();
+      openDomainModal(button.dataset.scoreDomain);
+    });
+  });
+}
+
+function closeScoreModal() {
+  const modal = document.getElementById("score-detail-modal");
+  if (!modal) return;
+  modal.hidden = true;
+  if (
+    document.getElementById("domain-detail-modal")?.hidden &&
+    document.getElementById("protocol-detail-modal")?.hidden &&
+    document.getElementById("source-detail-modal")?.hidden &&
+    document.getElementById("action-detail-modal")?.hidden
+  ) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function renderScoreRangeDetail(bin) {
+  if (!bin.domains.length) {
+    return `<div class="empty">No domains in this score range.</div>`;
+  }
+
+  return `
+    <div class="score-modal-summary ${bin.status}">
+      <span>${escapeHtml(bin.detail)}</span>
+      <strong>${formatNumber.format(bin.domains.length)} ${bin.domains.length === 1 ? "domain" : "domains"}</strong>
+      <p>Scores from ${escapeHtml(bin.label)}. Domains are sorted by message volume.</p>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle score-domain-table">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Policy</th>
+            <th class="text-end">Score</th>
+            <th class="text-end">Messages</th>
+            <th class="text-end">Alignment</th>
+            <th>Next step</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bin.domains
+            .map((domain) => {
+              const alignment = domain.messages === 0 ? 0 : (domain.aligned / domain.messages) * 100;
+              return `
+                <tr>
+                  <td>
+                    <button class="score-domain-link" type="button" data-score-domain="${escapeHtml(domain.domain)}">${escapeHtml(domain.domain)}</button>
+                  </td>
+                  <td><span class="status-badge policy ${domainPolicyStatus(domain.policy)}">${escapeHtml(domain.policy)}</span></td>
+                  <td class="text-end"><span class="status-badge grade ${domainGradeStatus(domain.score)}">${Number(domain.score || 0)}/100</span></td>
+                  <td class="text-end">${formatNumber.format(domain.messages || 0)}</td>
+                  <td class="text-end">${alignment.toFixed(1)}%</td>
+                  <td>${escapeHtml(domain.next_step)}</td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function policyChartColor(policy) {
+  if (policy === "reject") return "var(--dm-success)";
+  if (policy === "quarantine") return "var(--dm-warning)";
+  if (policy === "none") return "var(--dm-danger)";
+  return "var(--dm-muted)";
 }
 
 function scoreDetailText(score, complianceRate) {
@@ -637,10 +1070,6 @@ function renderGeoMap() {
     .filter((point) => Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude)))
     .slice(0, 250);
 
-  const provider = state.geo.provider || "local fallback";
-  document.getElementById("geo-summary").textContent =
-    `${points.length} located sources · ${state.geo.unresolved_sources || 0} unresolved · ${provider}`;
-
   if (!window.L) {
     map.innerHTML = `<div class="empty">Interactive map assets are unavailable.</div>`;
     renderGeoList(list, points);
@@ -766,6 +1195,14 @@ function renderDomains() {
   }
 
   const domains = sortedDomains();
+  if (!domains.length) {
+    body.innerHTML = `<tr><td colspan="6">No domains match this search.</td></tr>`;
+    pagination.innerHTML = "";
+    summary.textContent = `0 of ${formatNumber.format(state.domains.length)} domains`;
+    renderDomainSortState();
+    return;
+  }
+
   const totalPages = Math.max(1, Math.ceil(domains.length / state.domainsPerPage));
   state.domainPage = Math.min(Math.max(1, state.domainPage), totalPages);
   const start = (state.domainPage - 1) * state.domainsPerPage;
@@ -779,7 +1216,23 @@ function renderDomains() {
       const policyTooltip = domainPolicyTooltip(domain.policy);
       return `
         <tr class="domain-row" tabindex="0" data-domain="${escapeHtml(domain.domain)}" aria-label="Open ${escapeHtml(domain.domain)} details">
-          <td><strong>${escapeHtml(domain.domain)}</strong><small>${domain.sources} sources</small></td>
+          <td>
+            <span class="domain-name-cell">
+              <span class="domain-row-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                  <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" />
+                  <path d="M3.6 9h16.8" />
+                  <path d="M3.6 15h16.8" />
+                  <path d="M12 3c2.2 2.4 3.2 5.4 3.2 9s-1 6.6-3.2 9" />
+                  <path d="M12 3c-2.2 2.4-3.2 5.4-3.2 9s1 6.6 3.2 9" />
+                </svg>
+              </span>
+              <span>
+                <strong>${escapeHtml(domain.domain)}</strong>
+                <small>(${domain.sources} sources)</small>
+              </span>
+            </span>
+          </td>
           <td>
             <span class="status-badge grade ${domainGradeStatus(domain.score)}" tabindex="0" data-tooltip="${escapeHtml(gradeTooltip)}" aria-label="${escapeHtml(gradeTooltip)}">
               ${escapeHtml(domain.grade)}
@@ -792,7 +1245,7 @@ function renderDomains() {
           </td>
           <td class="text-end">${formatNumber.format(domain.messages)}</td>
           <td class="text-end">${alignment.toFixed(1)}%</td>
-          <td>${escapeHtml(domain.next_step)}</td>
+          <td class="next-step-cell" title="${escapeHtml(domain.next_step)}">${escapeHtml(domain.next_step)}</td>
         </tr>
       `;
     })
@@ -808,17 +1261,38 @@ function renderDomains() {
     });
   });
 
-  summary.textContent = `${formatNumber.format(start + 1)}-${formatNumber.format(start + page.length)} of ${formatNumber.format(domains.length)} domains`;
+  summary.textContent = state.domainSearch
+    ? `${formatNumber.format(start + 1)}-${formatNumber.format(start + page.length)} of ${formatNumber.format(domains.length)} matches · ${formatNumber.format(state.domains.length)} domains total`
+    : `${formatNumber.format(start + 1)}-${formatNumber.format(start + page.length)} of ${formatNumber.format(domains.length)} domains`;
   renderDomainPagination(pagination, totalPages);
 }
 
 function sortedDomains() {
   const { key, direction } = state.domainSort;
   const multiplier = direction === "asc" ? 1 : -1;
-  return [...state.domains].sort((left, right) => {
+  return filteredDomains().sort((left, right) => {
     const result = compareDomainValue(domainSortValue(left, key), domainSortValue(right, key));
     if (result !== 0) return result * multiplier;
     return left.domain.localeCompare(right.domain, undefined, { sensitivity: "base" });
+  });
+}
+
+function filteredDomains() {
+  const query = state.domainSearch;
+  if (!query) return [...state.domains];
+  return state.domains.filter((domain) => {
+    const alignment = domain.messages === 0 ? 0 : (domain.aligned / domain.messages) * 100;
+    return [
+      domain.domain,
+      domain.policy,
+      domain.grade,
+      domain.next_step,
+      String(domain.messages),
+      `${alignment.toFixed(1)}%`,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
   });
 }
 
@@ -961,15 +1435,17 @@ function renderSources() {
     return;
   }
 
-  list.innerHTML = state.sources
+  const groups = groupedSources();
+  list.innerHTML = groups
     .slice(0, 12)
     .map(
-      (source) => `
-      <article class="source">
+      (source, index) => `
+      <article class="source" tabindex="0" role="button" data-source-group-index="${index}" aria-label="Open source details for ${escapeHtml(source.sender)}">
         <div class="source-head">
           <div>
-            <strong>${escapeHtml(source.sender || source.source_ip)}</strong>
-            <small>${sourceIpWithFlag(source.source_ip)} · ${escapeHtml((source.domains || []).join(", ") || "unknown domain")}</small>
+            <strong>${escapeHtml(source.sender)}</strong>
+            <small>${formatNumber.format(source.source_count)} IPs · ${formatNumber.format(source.domain_count)} domains</small>
+            ${domainChips(source.domains, 5)}
           </div>
           <span class="risk ${escapeHtml(source.risk)}">${escapeHtml(source.risk)}</span>
         </div>
@@ -977,12 +1453,81 @@ function renderSources() {
           <span>${formatNumber.format(source.messages)} messages</span>
           <span>${Number(source.alignment_rate || 0).toFixed(1)}% aligned</span>
           <span>${formatNumber.format(source.rejected)} rejected</span>
+          <span>${formatNumber.format(source.quarantined)} quarantined</span>
         </div>
         <div class="bar"><i style="width: ${Math.max(3, Number(source.alignment_rate || 0))}%"></i></div>
       </article>
     `,
     )
     .join("");
+
+  list.querySelectorAll("[data-source-group-index]").forEach((card) => {
+    card.addEventListener("click", () => openSourceModal(Number(card.dataset.sourceGroupIndex)));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openSourceModal(Number(card.dataset.sourceGroupIndex));
+      }
+    });
+  });
+}
+
+function groupedSources() {
+  const groups = new Map();
+  for (const source of state.sources) {
+    const sender = source.sender || source.source_ip || "Unknown sender";
+    const key = sender === "Unknown sender" || sender === source.source_ip
+      ? `${sender}|${source.source_ip}`
+      : sender;
+    const group = groups.get(key) || {
+      sender,
+      domains: new Set(),
+      messages: 0,
+      aligned: 0,
+      rejected: 0,
+      quarantined: 0,
+      source_count: 0,
+      sources: [],
+      risk: "low",
+    };
+    group.messages += Number(source.messages || 0);
+    group.aligned += Number(source.aligned || 0);
+    group.rejected += Number(source.rejected || 0);
+    group.quarantined += Number(source.quarantined || 0);
+    group.source_count += 1;
+    group.sources.push(source);
+    group.risk = highestRisk(group.risk, source.risk);
+    for (const domain of source.domains || []) group.domains.add(domain);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      domains: [...group.domains].sort((left, right) => left.localeCompare(right)),
+      domain_count: group.domains.size,
+      alignment_rate: group.messages === 0 ? 0 : (group.aligned / group.messages) * 100,
+      sources: group.sources.sort((left, right) => Number(right.messages || 0) - Number(left.messages || 0)),
+    }))
+    .sort((left, right) => right.messages - left.messages);
+}
+
+function domainChips(domains, limit = 6) {
+  const list = domains || [];
+  if (!list.length) return `<div class="source-domain-chips"><span>unknown domain</span></div>`;
+  const visible = list.slice(0, limit);
+  const extra = list.length - visible.length;
+  return `
+    <div class="source-domain-chips">
+      ${visible.map((domain) => `<span>${escapeHtml(domain)}</span>`).join("")}
+      ${extra > 0 ? `<span>+${formatNumber.format(extra)}</span>` : ""}
+    </div>
+  `;
+}
+
+function highestRisk(left, right) {
+  const order = { low: 1, medium: 2, high: 3, critical: 4 };
+  return (order[right] || 0) > (order[left] || 0) ? right : left;
 }
 
 function renderActions() {
@@ -995,8 +1540,8 @@ function renderActions() {
   list.innerHTML = state.actions
     .slice(0, 8)
     .map(
-      (item) => `
-      <article class="action ${escapeHtml(item.severity)}">
+      (item, index) => `
+      <article class="action ${escapeHtml(item.severity)}" tabindex="0" role="button" data-action-index="${index}" aria-label="Open action details for ${escapeHtml(item.title)}">
         <span>${escapeHtml(item.severity)}</span>
         <strong>${escapeHtml(item.title)}</strong>
         <small>${escapeHtml(item.domain)}</small>
@@ -1006,6 +1551,16 @@ function renderActions() {
     `,
     )
     .join("");
+
+  list.querySelectorAll("[data-action-index]").forEach((card) => {
+    card.addEventListener("click", () => openActionModal(Number(card.dataset.actionIndex)));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openActionModal(Number(card.dataset.actionIndex));
+      }
+    });
+  });
 }
 
 function renderEvidence() {
@@ -1100,6 +1655,318 @@ function closeProtocolModal() {
   if (!modal || modal.hidden) return;
   modal.hidden = true;
   document.body.classList.remove("modal-open");
+}
+
+function openSourceModal(index) {
+  const group = groupedSources()[index];
+  if (!group) return;
+
+  const modal = document.getElementById("source-detail-modal");
+  const title = document.getElementById("source-modal-title");
+  const body = document.getElementById("source-modal-body");
+
+  title.textContent = group.sender;
+  body.innerHTML = renderSourceGroupDetail(group);
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeSourceModal() {
+  const modal = document.getElementById("source-detail-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function renderSourceGroupDetail(group) {
+  const alignment = group.messages === 0 ? 0 : (group.aligned / group.messages) * 100;
+  return `
+    <div class="action-detail-head ${escapeHtml(group.risk)}">
+      <span>${escapeHtml(group.risk)}</span>
+      <div>
+        <h4>${escapeHtml(group.sender)}</h4>
+        <p>${formatNumber.format(group.source_count)} source IPs · ${formatNumber.format(group.domain_count || 0)} domains</p>
+      </div>
+    </div>
+
+    <section class="domain-detail-section">
+      <div class="domain-section-title">
+        <h4>Aggregate metrics</h4>
+        <span>${escapeHtml((group.domains || []).join(", ") || "all domains")}</span>
+      </div>
+      <div class="domain-detail-grid">
+        ${actionMetricCard("Messages", formatNumber.format(group.messages), domainMessagesStatus(group.messages))}
+        ${actionMetricCard("Alignment", `${alignment.toFixed(1)}%`, domainAlignmentStatus(alignment))}
+        ${actionMetricCard("Rejected", formatNumber.format(group.rejected), group.rejected > 0 ? "warn" : "good")}
+        ${actionMetricCard("Quarantined", formatNumber.format(group.quarantined), group.quarantined > 0 ? "warn" : "good")}
+      </div>
+    </section>
+
+    <section class="domain-detail-section">
+      <div class="domain-section-title">
+        <h4>Domains</h4>
+        <span>${formatNumber.format(group.domain_count || 0)} domains</span>
+      </div>
+      ${domainChips(group.domains, 40)}
+    </section>
+
+    <section class="domain-detail-section">
+      <div class="domain-section-title">
+        <h4>Source IPs</h4>
+        <span>${formatNumber.format(group.sources.length)} IPs</span>
+      </div>
+      ${renderSourceGroupTable(group.sources)}
+    </section>
+  `;
+}
+
+function renderSourceGroupTable(sources) {
+  if (!sources.length) return `<div class="empty">No source IPs found for this group.</div>`;
+  return `
+    <div class="table-responsive">
+      <table class="table table-sm align-middle domain-source-table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Domains</th>
+            <th>Geo</th>
+            <th class="text-end">Messages</th>
+            <th class="text-end">Alignment</th>
+            <th class="text-end">Rejected</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sources
+            .map((source) => {
+              const point = geoPointForIp(source.source_ip);
+              const enriched = {
+                ...source,
+                country: point?.country,
+                country_code: point?.country_code,
+                region: point?.city,
+                continent: point?.continent,
+                continent_code: point?.continent_code,
+                asn_number: point?.asn_number,
+                asn_organization: point?.asn_organization,
+              };
+              return `
+                <tr>
+                  <td>
+                    <strong>${sourceIpWithFlag(source.source_ip)}</strong>
+                    <small>${escapeHtml(source.sender || "Unknown sender")}</small>
+                  </td>
+                  <td>${escapeHtml((source.domains || []).join(", ") || "unknown")}</td>
+                  <td>
+                    ${escapeHtml(formatDomainSourceGeo(enriched))}
+                    <small>${escapeHtml(formatGeoAsn(enriched))}</small>
+                  </td>
+                  <td class="text-end">${formatNumber.format(source.messages || 0)}</td>
+                  <td class="text-end">
+                    ${Number(source.alignment_rate || 0).toFixed(1)}%
+                    <small>${formatNumber.format(source.aligned || 0)} aligned</small>
+                  </td>
+                  <td class="text-end">
+                    ${formatNumber.format(source.rejected || 0)}
+                    <small>${formatNumber.format(source.quarantined || 0)} quarantined</small>
+                  </td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function openActionModal(index) {
+  const item = state.actions[index];
+  if (!item) return;
+
+  const modal = document.getElementById("action-detail-modal");
+  const title = document.getElementById("action-modal-title");
+  const body = document.getElementById("action-modal-body");
+
+  title.textContent = item.title;
+  body.innerHTML = `<div class="empty">Loading action details...</div>`;
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+
+  let domainDetail = null;
+  if (item.domain && item.domain !== "all domains" && item.domain !== "unknown") {
+    try {
+      domainDetail = await fetchJson(`/api/domains/${encodeURIComponent(item.domain)}`);
+    } catch {
+      domainDetail = null;
+    }
+  }
+
+  body.innerHTML = renderActionDetail(item, domainDetail);
+}
+
+function closeActionModal() {
+  const modal = document.getElementById("action-detail-modal");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function renderActionDetail(item, domainDetail) {
+  const domain = domainDetail?.summary || state.domains.find((row) => row.domain === item.domain);
+  const sources = actionSources(item, domainDetail);
+  const reports = domainDetail?.recent_reports || [];
+  const alignment = domain?.messages ? (domain.aligned / domain.messages) * 100 : null;
+
+  return `
+    <div class="action-detail-head ${escapeHtml(item.severity)}">
+      <span>${escapeHtml(item.severity)}</span>
+      <div>
+        <h4>${escapeHtml(item.title)}</h4>
+        <p>${escapeHtml(item.detail)}</p>
+      </div>
+    </div>
+
+    <section class="domain-detail-section">
+      <div class="domain-section-title">
+        <h4>Impact</h4>
+        <span>${escapeHtml(item.domain || "all domains")}</span>
+      </div>
+      <div class="domain-detail-grid">
+        ${actionMetricCard("Domain", domain?.domain || item.domain || "n/a", "neutral")}
+        ${actionMetricCard("Messages", domain ? formatNumber.format(domain.messages) : "n/a", domainMessagesStatus(domain?.messages || 0))}
+        ${actionMetricCard("Alignment", alignment === null ? "n/a" : `${alignment.toFixed(1)}%`, alignment === null ? "neutral" : domainAlignmentStatus(alignment))}
+        ${actionMetricCard("Policy", domain ? `p=${domain.policy}` : "n/a", domain ? domainPolicyStatus(domain.policy) : "neutral")}
+      </div>
+    </section>
+
+    <section class="domain-detail-section">
+      <div class="domain-section-title">
+        <h4>Evidence</h4>
+        <span>${formatNumber.format(sources.length)} related sources</span>
+      </div>
+      ${renderActionSources(sources)}
+    </section>
+
+    <section class="domain-detail-section">
+      <div class="domain-section-title">
+        <h4>Reports</h4>
+        <span>${reports.length ? `Latest ${formatNumber.format(reports.length)}` : "Current aggregate view"}</span>
+      </div>
+      ${reports.length ? renderDomainReports(reports) : renderActionFallbackEvidence(item)}
+    </section>
+
+    <section class="domain-detail-section">
+      <div class="domain-section-title">
+        <h4>Recommendation</h4>
+      </div>
+      <div class="protocol-recommendation">${escapeHtml(item.recommendation)}</div>
+    </section>
+  `;
+}
+
+function actionMetricCard(label, value, status) {
+  return `
+    <article class="domain-status-card ${status}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `;
+}
+
+function actionSources(item, domainDetail) {
+  const detailSources = domainDetail?.sources || [];
+  const matching = detailSources.filter((source) => actionMatchesSource(item, source));
+  const sources = matching.length ? matching : detailSources.slice(0, 6);
+  if (sources.length) return sources.slice(0, 8);
+
+  return state.sources
+    .filter((source) => actionMatchesSource(item, source))
+    .slice(0, 8)
+    .map((source) => {
+      const point = geoPointForIp(source.source_ip);
+      return {
+        ...source,
+        provider: point?.provider,
+        country: point?.country,
+        country_code: point?.country_code,
+        region: point?.city,
+        continent: point?.continent,
+        continent_code: point?.continent_code,
+        asn_number: point?.asn_number,
+        asn_organization: point?.asn_organization,
+      };
+    });
+}
+
+function actionMatchesSource(item, source) {
+  const itemText = [
+    item.detail,
+    item.domain,
+    item.title,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    (source.source_ip && itemText.includes(String(source.source_ip).toLowerCase())) ||
+    (source.sender && source.sender !== "Unknown sender" && itemText.includes(String(source.sender).toLowerCase())) ||
+    ((source.domains || []).some((domain) => String(item.domain || "").toLowerCase() === String(domain).toLowerCase()))
+  );
+}
+
+function renderActionSources(sources) {
+  if (!sources.length) {
+    return `<div class="empty">No related source details were found for this action.</div>`;
+  }
+
+  return `
+    <div class="table-responsive">
+      <table class="table table-sm align-middle domain-source-table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Geo</th>
+            <th>ASN</th>
+            <th class="text-end">Messages</th>
+            <th class="text-end">Alignment</th>
+            <th class="text-end">Rejected</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sources
+            .map((source) => `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(source.sender || "Unknown sender")}</strong>
+                  <small>${countryFlag(source.country_code)} ${escapeHtml(source.source_ip)}</small>
+                </td>
+                <td>${escapeHtml(formatDomainSourceGeo(source))}</td>
+                <td>${escapeHtml(formatGeoAsn(source))}</td>
+                <td class="text-end">${formatNumber.format(source.messages || 0)}</td>
+                <td class="text-end">
+                  ${Number(source.alignment_rate || 0).toFixed(1)}%
+                  <small>${formatNumber.format(source.aligned || 0)} aligned</small>
+                </td>
+                <td class="text-end">
+                  ${formatNumber.format(source.rejected || 0)}
+                  <small>${formatNumber.format(source.quarantined || 0)} quarantined</small>
+                </td>
+              </tr>
+            `)
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderActionFallbackEvidence(item) {
+  return `
+    <ul class="protocol-evidence">
+      <li>${escapeHtml(item.detail)}</li>
+      <li>Current global posture: ${escapeHtml(state.overview?.posture || "unknown")} · stage ${escapeHtml(state.overview?.enforcement_stage || "unknown")}</li>
+    </ul>
+  `;
 }
 
 function renderProtocolDetail(protocol) {
@@ -1232,12 +2099,15 @@ function renderDomainDetail(detail) {
     <section class="domain-detail-section">
       <div class="domain-section-title">
         <h4>Policy posture</h4>
-        <span>${escapeHtml(summary.next_step)}</span>
       </div>
-      <div class="domain-policy-row">
-        <span>DKIM alignment <strong>${escapeHtml(policy.adkim || "r")}</strong></span>
-        <span>SPF alignment <strong>${escapeHtml(policy.aspf || "r")}</strong></span>
-        <span>Last report <strong>${summary.last_report ? escapeHtml(shortDate(summary.last_report)) : "n/a"}</strong></span>
+      <div class="policy-posture-callout ${domainPolicyStatus(policy.policy)}">
+        <span>Recommended next step</span>
+        <strong>${escapeHtml(summary.next_step)}</strong>
+        <div class="domain-policy-row">
+          ${alignmentModeCard("DKIM alignment", policy.adkim)}
+          ${alignmentModeCard("SPF alignment", policy.aspf)}
+          <span>Last report <strong>${summary.last_report ? escapeHtml(shortDate(summary.last_report)) : "n/a"}</strong></span>
+        </div>
       </div>
     </section>
 
@@ -1256,6 +2126,21 @@ function renderDomainDetail(detail) {
       </div>
       ${renderDomainReports(detail.recent_reports)}
     </section>
+  `;
+}
+
+function alignmentModeCard(label, mode) {
+  const normalized = String(mode || "r").toLowerCase() === "s" ? "s" : "r";
+  const name = normalized === "s" ? "Strict" : "Relaxed";
+  const detail = normalized === "s"
+    ? "The authenticated domain must exactly match the visible From domain."
+    : "Subdomains can align with the organizational From domain.";
+  return `
+    <span class="alignment-mode-card">
+      ${escapeHtml(label)}
+      <strong>${name} (${normalized})</strong>
+      <small>${escapeHtml(detail)}</small>
+    </span>
   `;
 }
 
@@ -1454,6 +2339,9 @@ function renderProfile() {
   setText("profile-name", label);
   setText("profile-email", email);
   setText("profile-auth-type", user.auth_type === "oidc" ? "OIDC account" : "Local account");
+
+  const isLocalAccount = user.auth_type !== "oidc";
+  document.getElementById("change-password-link").hidden = !isLocalAccount;
 }
 
 function oidcFormPayload() {
