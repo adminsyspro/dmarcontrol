@@ -30,8 +30,6 @@ docker run -d \
   --name dmarcontrol \
   -p 8080:8080 \
   -v dmarcontrol-data:/app/data \
-  -e DMARCONTROL_ADMIN_PASSWORD='change-me' \
-  -e DMARCONTROL_APP_SECRET='replace-with-a-long-random-secret' \
   --restart unless-stopped \
   ghcr.io/adminsyspro/dmarcontrol:latest
 ```
