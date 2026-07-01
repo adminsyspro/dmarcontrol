@@ -97,30 +97,6 @@ docker run --rm -v dmarcontrol-data:/data curlimages/curl:latest \
 
 ---
 
-## Importing Reports
-
-Import from disk:
-
-```bash
-cargo run -- --import ./reports
-```
-
-Import with Docker:
-
-```bash
-docker run --rm \
-  -v dmarcontrol-data:/app/data \
-  -v "$PWD/reports:/reports:ro" \
-  ghcr.io/adminsyspro/dmarcontrol:latest \
-  dmarcontrol --import /reports --data-dir /app/data
-```
-
-Run a one-shot mailbox import:
-
-```bash
-cargo run -- --import-mailbox
-```
-
 ## Reverse Proxy
 
 Example Nginx vhost:
