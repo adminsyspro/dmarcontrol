@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dmarcontrol</title>
+    <script>
+      (() => {
+        const stored = localStorage.getItem("dmarcontrol-theme");
+        const preferred = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-bs-theme", stored || preferred);
+      })();
+    </script>
+    <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
+    <link rel="stylesheet" href="/assets/vendor/hope-ui/hope-ui.min.css">
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body class="bg-soft-light">
+    <aside class="sidebar sidebar-default navs-rounded sidebar-mini sidebar-base fixed-start d-none d-lg-block">
+      <div class="sidebar-header d-flex align-items-center justify-content-start">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="/">
+          <img class="app-logo" src="/assets/brand/dmarcontrol-logo.svg" alt="Dmarcontrol">
+        </a>
+      </div>
+      <div class="sidebar-body pt-0 data-scrollbar">
+        <div class="sidebar-list">
+          <p class="sidebar-menu-title">Menu</p>
+          <ul class="navbar-nav iq-main-menu">
+            <li class="nav-item">
+              <a class="nav-link active" href="#overview">
+                <span class="sidebar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M4 13h6V4H4v9z" />
+                    <path d="M14 20h6V4h-6v16z" />
+                    <path d="M4 20h6v-3H4v3z" />
+                  </svg>
+                </span>
+                <span class="item-name">Overview</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#domains">
+                <span class="sidebar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" />
+                    <path d="M3.6 9h16.8" />
+                    <path d="M3.6 15h16.8" />
+                    <path d="M12 3c2.2 2.4 3.2 5.4 3.2 9s-1 6.6-3.2 9" />
+                    <path d="M12 3c-2.2 2.4-3.2 5.4-3.2 9s1 6.6 3.2 9" />
+                  </svg>
+                </span>
+                <span class="item-name">Domains</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#sources">
+                <span class="sidebar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M4 12l16-8-4 16-4-7-8-1z" />
+                    <path d="M12 13l8-9" />
+                  </svg>
+                </span>
+                <span class="item-name">Sources</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#remediation">
+                <span class="sidebar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M14.7 6.3a4 4 0 0 0-5.3 5.3l-5.1 5.1a2 2 0 0 0 2.8 2.8l5.1-5.1a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.8-2.8 2.6-2.6z" />
+                  </svg>
+                </span>
+                <span class="item-name">Remediation</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#evidence">
+                <span class="sidebar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M7 3h7l4 4v14H7V3z" />
+                    <path d="M14 3v5h5" />
+                    <path d="M9.5 15l1.8 1.8 3.7-4.1" />
+                  </svg>
+                </span>
+                <span class="item-name">Evidence</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#settings">
+                <span class="sidebar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+                    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.2-.1a1.7 1.7 0 0 0-2.1.5l-.1.1h-4l-.1-.1a1.7 1.7 0 0 0-2.1-.5l-.2.1-2-3.4.1-.1A1.7 1.7 0 0 0 7.4 15l-.1-.2-2-1.2v-3.2l2-1.2.1-.2a1.7 1.7 0 0 0-.3-1.9L7 7l2-3.4.2.1a1.7 1.7 0 0 0 2.1-.5l.1-.1h4l.1.1a1.7 1.7 0 0 0 2.1.5l.2-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9l.1.2 2 1.2v3.2l-2 1.2-.1.2z" />
+                  </svg>
+                </span>
+                <span class="item-name">Settings</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <nav class="nav navbar navbar-expand-lg navbar-light iq-navbar border-bottom">
+        <div class="container-fluid navbar-inner">
+          <a class="navbar-brand d-lg-none d-flex align-items-center gap-2" href="/">
+            <img class="app-logo app-logo-mobile" src="/assets/brand/dmarcontrol-logo.svg" alt="Dmarcontrol">
+          </a>
+          <div class="header-actions">
+            <a class="btn btn-icon btn-soft-primary" href="/api/export/reports.csv" title="Export CSV" aria-label="Export CSV">
+              <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="M7 10l5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+            </a>
+            <button id="mailbox-sync" class="btn btn-icon btn-soft-success" type="button" title="Sync mailbox" aria-label="Sync mailbox">
+              <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                <path d="M21 12a9 9 0 0 1-15.3 6.4" />
+                <path d="M3 12A9 9 0 0 1 18.3 5.6" />
+                <path d="M7 18H3v4" />
+                <path d="M17 6h4V2" />
+              </svg>
+            </button>
+            <form id="upload-form" class="header-upload-form">
+              <label class="btn btn-icon btn-soft-info mb-0" title="Select reports" aria-label="Select reports">
+                <input id="file-input" name="file" class="visually-hidden" type="file" accept=".xml,.gz,.zip" multiple>
+                <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                  <path d="M12 21V9" />
+                  <path d="M7 14l5-5 5 5" />
+                  <path d="M5 3h14" />
+                </svg>
+              </label>
+              <button class="btn btn-icon btn-success" type="submit" title="Process selected reports" aria-label="Process selected reports">
+                <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                  <path d="M5 12l5 5L20 7" />
+                </svg>
+              </button>
+            </form>
+            <button id="theme-toggle" class="btn btn-icon btn-soft-secondary" type="button" title="Toggle dark theme" aria-label="Toggle dark theme">
+              <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                <path d="M12 4V2" />
+                <path d="M12 22v-2" />
+                <path d="M4.9 4.9 3.5 3.5" />
+                <path d="m20.5 20.5-1.4-1.4" />
+                <path d="M4 12H2" />
+                <path d="M22 12h-2" />
+                <path d="m4.9 19.1-1.4 1.4" />
+                <path d="m20.5 3.5-1.4 1.4" />
+                <path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z" />
+              </svg>
+              <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.7 6.7 0 0 0 9.8 9.8z" />
+              </svg>
+            </button>
+            <div class="profile-menu">
+              <button id="profile-toggle" class="profile-avatar" type="button" aria-label="Open profile menu" aria-expanded="false">
+                <span id="profile-initials">AD</span>
+              </button>
+              <div id="profile-dropdown" class="profile-dropdown" hidden>
+                <div class="profile-dropdown-head">
+                  <strong id="profile-name">Admin</strong>
+                  <span id="profile-email">admin@local</span>
+                  <small id="profile-auth-type">Local account</small>
+                </div>
+                <a class="profile-dropdown-item" href="#settings">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+                    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.2-.1a1.7 1.7 0 0 0-2.1.5l-.1.1h-4l-.1-.1a1.7 1.7 0 0 0-2.1-.5l-.2.1-2-3.4.1-.1A1.7 1.7 0 0 0 7.4 15l-.1-.2-2-1.2v-3.2l2-1.2.1-.2a1.7 1.7 0 0 0-.3-1.9L7 7l2-3.4.2.1a1.7 1.7 0 0 0 2.1-.5l.1-.1h4l.1.1a1.7 1.7 0 0 0 2.1.5l.2-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9l.1.2 2 1.2v3.2l-2 1.2-.1.2z" />
+                  </svg>
+                  Settings
+                </a>
+                <button id="logout-button" class="profile-dropdown-item profile-dropdown-danger" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <path d="M16 17l5-5-5-5" />
+                    <path d="M21 12H9" />
+                  </svg>
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="container-fluid content-inner pb-0">
+        <section id="overview" class="row overview-row">
+          <div class="col-xl-5 col-lg-12">
+            <div class="card overview-card">
+              <div class="card-body d-flex align-items-center gap-4 flex-wrap">
+                <span class="overview-icon overview-icon-posture" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="M12 3l7 3v5c0 4.5-2.8 8.3-7 10-4.2-1.7-7-5.5-7-10V6l7-3z" />
+                    <path d="M9 12l2 2 4-5" />
+                  </svg>
+                </span>
+                <div class="score-ring" id="score-ring" style="--score: 0">
+                  <span id="grade">F</span>
+                  <small id="score">0</small>
+                </div>
+                <div class="flex-fill">
+                  <p class="text-uppercase text-muted fw-semibold small mb-1">Posture</p>
+                  <h3 class="mb-2">DMARC score</h3>
+                  <p id="score-detail" class="text-muted mb-0">Import aggregate reports to calculate a score.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-xl-7 col-lg-12">
+            <div class="row">
+              <div class="col-md-4">
+                <div class="card overview-card">
+                  <div class="card-body">
+                    <span class="overview-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                        <path d="M4 5h16v14H4z" />
+                        <path d="M8 9h8" />
+                        <path d="M8 13h5" />
+                        <path d="M8 17h3" />
+                      </svg>
+                    </span>
+                    <p class="text-muted mb-1">Domains</p>
+                    <h3 id="metric-domains" class="counter mb-1">0</h3>
+                    <small id="metric-reports" class="text-muted">0 reports</small>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="card overview-card">
+                  <div class="card-body">
+                    <span class="overview-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                        <path d="M4 7l8 6 8-6" />
+                        <path d="M4 7h16v10H4z" />
+                      </svg>
+                    </span>
+                    <p class="text-muted mb-1">Messages</p>
+                    <h3 id="metric-messages" class="counter mb-1">0</h3>
+                    <small id="metric-aligned" class="text-muted">0 aligned</small>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="card overview-card">
+                  <div class="card-body">
+                    <span class="overview-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                        <path d="M4 19V5" />
+                        <path d="M4 19h16" />
+                        <path d="M7 15l4-4 3 3 5-7" />
+                      </svg>
+                    </span>
+                    <p class="text-muted mb-1">Alignment</p>
+                    <h3 id="metric-alignment" class="counter mb-1">0%</h3>
+                    <small id="metric-actions" class="text-muted">0 actions</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="row equal-row">
+          <div class="col-xl-8">
+            <div class="card equal-card">
+              <div class="card-header d-flex justify-content-between flex-wrap">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Compliance trend</h4>
+                  <p class="mb-0 text-muted">Aggregate volume and aligned traffic over time</p>
+                </div>
+              </div>
+              <div class="card-body trend-card-body">
+                <div id="trend" class="trend"></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-xl-4">
+            <div class="card equal-card">
+              <div class="card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Protocol coverage</h4>
+                  <p class="mb-0 text-muted">Derived from aggregate reports</p>
+                </div>
+              </div>
+              <div id="protocols" class="list-group list-group-flush"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="row equal-row">
+          <div class="col-xl-8">
+            <div class="card equal-card">
+              <div class="card-header d-flex justify-content-between flex-wrap">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Source geography</h4>
+                  <p class="mb-0 text-muted">Country-level source IP intelligence from IP66</p>
+                </div>
+                <span id="geo-summary" class="text-muted small"></span>
+              </div>
+              <div class="card-body">
+                <div id="geo-map" class="geo-map" aria-label="Source geography map"></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-xl-4">
+            <div class="card equal-card">
+              <div class="card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Top locations</h4>
+                  <p class="mb-0 text-muted">Grouped by IP66 country geolocation</p>
+                </div>
+              </div>
+              <div id="geo-list" class="list-group list-group-flush"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="domains" class="row">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Domains</h4>
+                  <p class="mb-0 text-muted">Score, policy and recommended next step</p>
+                </div>
+              </div>
+              <div class="card-body px-0">
+                <div class="table-responsive">
+                  <table class="table table-striped mb-0 domains-table">
+                    <thead>
+                      <tr>
+                        <th data-sort-column="domain">
+                          <button class="sort-button" type="button" data-domain-sort="domain">Domain <span class="sort-indicator" aria-hidden="true"></span></button>
+                        </th>
+                        <th data-sort-column="grade">
+                          <button class="sort-button" type="button" data-domain-sort="grade">Grade <span class="sort-indicator" aria-hidden="true"></span></button>
+                        </th>
+                        <th data-sort-column="policy">
+                          <button class="sort-button" type="button" data-domain-sort="policy">Policy <span class="sort-indicator" aria-hidden="true"></span></button>
+                        </th>
+                        <th class="text-end" data-sort-column="messages" aria-sort="descending">
+                          <button class="sort-button justify-content-end" type="button" data-domain-sort="messages">Messages <span class="sort-indicator" aria-hidden="true"></span></button>
+                        </th>
+                        <th class="text-end" data-sort-column="alignment">
+                          <button class="sort-button justify-content-end" type="button" data-domain-sort="alignment">Alignment <span class="sort-indicator" aria-hidden="true"></span></button>
+                        </th>
+                        <th data-sort-column="next_step">
+                          <button class="sort-button" type="button" data-domain-sort="next_step">Next step <span class="sort-indicator" aria-hidden="true"></span></button>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody id="domains-body"></tbody>
+                  </table>
+                </div>
+                <div class="domains-footer">
+                  <span id="domains-page-summary" class="text-muted small"></span>
+                  <div id="domains-pagination" class="domains-pagination" aria-label="Domains pagination"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="sources" class="row">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Sending sources</h4>
+                  <p class="mb-0 text-muted">Named senders inferred from SPF and DKIM evidence</p>
+                </div>
+              </div>
+              <div id="sources-list" class="source-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="remediation" class="row">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Action plan</h4>
+                  <p class="mb-0 text-muted">Prioritized fixes before enforcement</p>
+                </div>
+              </div>
+              <div id="actions-list" class="action-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="evidence" class="row">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex justify-content-between flex-wrap">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Compliance evidence</h4>
+                  <p class="mb-0 text-muted">Audit-oriented snapshot</p>
+                </div>
+                <span id="upload-status" class="text-muted small"></span>
+              </div>
+              <div class="card-body">
+                <div class="row g-3">
+                  <div class="col-lg-4">
+                    <p class="text-uppercase text-muted fw-semibold small mb-2">Policy path</p>
+                    <div class="steps">
+                      <span id="step-discover">Discover</span>
+                      <span id="step-validate">Validate</span>
+                      <span id="step-enforce">Enforce</span>
+                    </div>
+                  </div>
+                  <div class="col-lg-4">
+                    <p class="text-uppercase text-muted fw-semibold small mb-2">Policy mix</p>
+                    <div id="policy-mix" class="policy-mix"></div>
+                  </div>
+                  <div class="col-lg-4">
+                    <label class="form-label text-uppercase text-muted fw-semibold small" for="report-select">Report detail</label>
+                    <select id="report-select" class="form-select">
+                      <option value="">Select report</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="detail-content" class="detail-content mt-4"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="settings" class="row">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header d-flex justify-content-between flex-wrap">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Settings</h4>
+                  <p class="mb-0 text-muted">Mailbox connection used to collect DMARC aggregate reports</p>
+                </div>
+                <span id="settings-status" class="text-muted small"></span>
+              </div>
+              <div class="card-body">
+                <form id="mailbox-settings-form" class="row g-3">
+                  <div class="col-md-8">
+                    <label class="form-label" for="mailbox-host">IMAP host</label>
+                    <input id="mailbox-host" class="form-control" name="host" placeholder="imap.example.com" autocomplete="off">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label" for="mailbox-port">Port</label>
+                    <input id="mailbox-port" class="form-control" name="port" type="number" min="1" max="65535" value="993">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="mailbox-username">Username</label>
+                    <input id="mailbox-username" class="form-control" name="username" placeholder="dmarc@example.com" autocomplete="username">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="mailbox-password">Password</label>
+                    <input id="mailbox-password" class="form-control" name="password" type="password" autocomplete="current-password">
+                    <div id="mailbox-password-hint" class="form-text"></div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="mailbox-folder">Mailbox</label>
+                    <input id="mailbox-folder" class="form-control" name="mailbox" value="INBOX">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="mailbox-max-messages">Max emails per sync</label>
+                    <input id="mailbox-max-messages" class="form-control" name="max_messages" type="number" min="1" max="10000" value="500">
+                    <div class="form-text">Keep this low for large mailboxes. Increase gradually.</div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="mailbox-since-hours">Antériorité</label>
+                    <select id="mailbox-since-hours" class="form-select" name="since_hours">
+                      <option value="24">Last 24h</option>
+                      <option value="72">Last 3 days</option>
+                      <option value="168">Last 7 days</option>
+                      <option value="720">Last 30 days</option>
+                      <option value="0">All time</option>
+                    </select>
+                    <div class="form-text">IMAP filters by day with SINCE; keep a max email cap as protection.</div>
+                  </div>
+                  <div class="col-md-6 d-flex align-items-end gap-4 flex-wrap">
+                    <div class="form-check form-switch">
+                      <input id="mailbox-unseen-only" class="form-check-input" name="unseen_only" type="checkbox" checked>
+                      <label class="form-check-label" for="mailbox-unseen-only">Unread only</label>
+                    </div>
+                    <div class="form-check form-switch">
+                      <input id="mailbox-mark-seen" class="form-check-input" name="mark_seen" type="checkbox">
+                      <label class="form-check-label" for="mailbox-mark-seen">Mark as read after sync</label>
+                    </div>
+                  </div>
+                  <div class="col-md-6 d-flex align-items-end gap-4 flex-wrap">
+                    <div class="form-check form-switch">
+                      <input id="mailbox-scheduler-enabled" class="form-check-input" name="scheduler_enabled" type="checkbox">
+                      <label class="form-check-label" for="mailbox-scheduler-enabled">Scheduled sync</label>
+                    </div>
+                    <span id="mailbox-scheduler-status" class="text-muted small"></span>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="mailbox-scheduler-interval">Polling interval</label>
+                    <input id="mailbox-scheduler-interval" class="form-control" name="scheduler_interval_minutes" type="number" min="5" max="1440" value="60">
+                    <div class="form-text">Minimum 5 minutes. The worker reloads this setting automatically.</div>
+                  </div>
+                  <div class="col-12 d-flex gap-2 flex-wrap">
+                    <button class="btn btn-primary" type="submit">Save settings</button>
+                    <button id="mailbox-test" class="btn btn-outline-primary" type="button">Test connection</button>
+                    <button id="mailbox-sync-settings" class="btn btn-success" type="button">Sync now</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header d-flex justify-content-between flex-wrap">
+                <div class="header-title">
+                  <h4 class="card-title mb-1">Authentication</h4>
+                  <p class="mb-0 text-muted">Local accounts and OpenID Connect single sign-on</p>
+                </div>
+                <span id="auth-settings-status" class="text-muted small"></span>
+              </div>
+              <div class="card-body">
+                <form id="oidc-settings-form" class="row g-3">
+                  <div class="col-md-4 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                      <input id="oidc-enabled" class="form-check-input" type="checkbox">
+                      <label class="form-check-label" for="oidc-enabled">Enable OIDC</label>
+                    </div>
+                  </div>
+                  <div class="col-md-4 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                      <input id="oidc-show-local-login" class="form-check-input" type="checkbox" checked>
+                      <label class="form-check-label" for="oidc-show-local-login">Show local login</label>
+                    </div>
+                  </div>
+                  <div class="col-md-4 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                      <input id="oidc-force-sso" class="form-check-input" type="checkbox">
+                      <label class="form-check-label" for="oidc-force-sso">Force SSO redirect</label>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="oidc-provider-name">Provider name</label>
+                    <input id="oidc-provider-name" class="form-control" placeholder="SSO">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="oidc-scopes">Scopes</label>
+                    <input id="oidc-scopes" class="form-control" value="openid profile email">
+                  </div>
+                  <div class="col-md-8">
+                    <label class="form-label" for="oidc-issuer-url">Issuer URL</label>
+                    <input id="oidc-issuer-url" class="form-control" placeholder="https://idp.example.com/realms/main">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label" for="oidc-client-id">Client ID</label>
+                    <input id="oidc-client-id" class="form-control" autocomplete="off">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="oidc-client-secret">Client secret</label>
+                    <input id="oidc-client-secret" class="form-control" type="password" autocomplete="new-password">
+                    <div id="oidc-client-secret-hint" class="form-text"></div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="oidc-app-base-url">Public app URL</label>
+                    <input id="oidc-app-base-url" class="form-control" placeholder="https://dmarcontrol.example.com">
+                    <div class="form-text">Leave blank to use the current request host.</div>
+                  </div>
+                  <div class="col-md-8">
+                    <label class="form-label" for="oidc-callback-url">Callback URL</label>
+                    <input id="oidc-callback-url" class="form-control" readonly>
+                  </div>
+                  <div class="col-md-4 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                      <input id="oidc-auto-provision" class="form-check-input" type="checkbox" checked>
+                      <label class="form-check-label" for="oidc-auto-provision">Auto provision users</label>
+                    </div>
+                  </div>
+                  <div class="col-12 d-flex gap-2 flex-wrap">
+                    <button class="btn btn-primary" type="submit">Save authentication</button>
+                    <a class="btn btn-outline-primary" href="/api/auth/oidc/login">Test SSO</a>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div id="domain-detail-modal" class="domain-modal" hidden>
+      <div class="domain-modal-backdrop" data-domain-modal-close></div>
+      <section class="domain-modal-panel" role="dialog" aria-modal="true" aria-labelledby="domain-modal-title">
+        <header class="domain-modal-header">
+          <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Domain intelligence</p>
+            <h3 id="domain-modal-title" class="mb-0">Domain</h3>
+          </div>
+          <button id="domain-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
+        </header>
+        <div id="domain-modal-body" class="domain-modal-body"></div>
+      </section>
+    </div>
+
+    <div id="protocol-detail-modal" class="domain-modal" hidden>
+      <div class="domain-modal-backdrop" data-protocol-modal-close></div>
+      <section class="domain-modal-panel protocol-modal-panel" role="dialog" aria-modal="true" aria-labelledby="protocol-modal-title">
+        <header class="domain-modal-header">
+          <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Protocol coverage</p>
+            <h3 id="protocol-modal-title" class="mb-0">Protocol</h3>
+          </div>
+          <button id="protocol-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
+        </header>
+        <div id="protocol-modal-body" class="domain-modal-body"></div>
+      </section>
+    </div>
+
+    <script src="/assets/vendor/hope-ui/hope-ui.js"></script>
+    <script src="/assets/vendor/leaflet/leaflet.js"></script>
+    <script src="/assets/app.js" type="module"></script>
+  </body>
+</html>

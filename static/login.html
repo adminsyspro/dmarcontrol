@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dmarcontrol login</title>
+    <script>
+      (() => {
+        const stored = localStorage.getItem("dmarcontrol-theme");
+        const preferred = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-bs-theme", stored || preferred);
+      })();
+    </script>
+    <link rel="stylesheet" href="/assets/vendor/hope-ui/hope-ui.min.css">
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body class="bg-soft-light auth-page">
+    <main class="auth-shell">
+      <section class="auth-panel">
+        <img class="auth-logo" src="/assets/brand/dmarcontrol-logo.svg" alt="Dmarcontrol">
+        <div class="auth-copy">
+          <h1>Sign in</h1>
+        </div>
+
+        <form id="login-form" class="auth-form">
+          <div>
+            <label class="form-label" for="login-username">Username</label>
+            <input id="login-username" class="form-control" autocomplete="username" required autofocus>
+          </div>
+          <div>
+            <label class="form-label" for="login-password">Password</label>
+            <input id="login-password" class="form-control" type="password" autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">Sign in</button>
+        </form>
+
+        <a id="oidc-login" class="btn btn-outline-primary w-100 d-none" href="/api/auth/oidc/login">Sign in with SSO</a>
+        <p id="login-status" class="auth-status text-muted small mb-0"></p>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("login-form");
+      const oidc = document.getElementById("oidc-login");
+      const status = document.getElementById("login-status");
+
+      function syncThemeLogo() {
+        const theme = document.documentElement.getAttribute("data-bs-theme") || "light";
+        const logo = document.querySelector(".auth-logo");
+        logo.src = theme === "dark"
+          ? "/assets/brand/dmarcontrol-logo-dark.svg"
+          : "/assets/brand/dmarcontrol-logo.svg";
+      }
+
+      async function loadProviders() {
+        const response = await fetch("/api/auth/providers");
+        if (!response.ok) return;
+        const providers = await response.json();
+        if (providers.oidc?.enabled) {
+          oidc.textContent = `Sign in with ${providers.oidc.provider_name || "SSO"}`;
+          oidc.classList.remove("d-none");
+          if (!providers.oidc.show_local_login) form.classList.add("d-none");
+          if (providers.oidc.force_sso_redirect) window.location.href = "/api/auth/oidc/login";
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        status.textContent = "Signing in...";
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: document.getElementById("login-username").value.trim(),
+            password: document.getElementById("login-password").value,
+          }),
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: "Login failed" }));
+          status.textContent = error.error;
+          return;
+        }
+        window.location.href = "/";
+      });
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("error")) status.textContent = params.get("error").replaceAll("_", " ");
+      syncThemeLogo();
+      loadProviders().catch(() => {});
+    </script>
+  </body>
+</html>
