@@ -107,6 +107,16 @@
           <a class="navbar-brand d-lg-none d-flex align-items-center gap-2" href="/">
             <img class="app-logo app-logo-mobile" src="/assets/brand/dmarcontrol-logo.svg" alt="Dmarcontrol">
           </a>
+          <div class="global-search">
+            <label class="global-search-input" for="global-search-input">
+              <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                <path d="M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15z" />
+                <path d="M16 16l5 5" />
+              </svg>
+              <input id="global-search-input" type="search" autocomplete="off" placeholder="Search domain, email or IP" aria-label="Search domain, email or IP" aria-expanded="false" aria-controls="global-search-results">
+            </label>
+            <div id="global-search-results" class="global-search-results" hidden></div>
+          </div>
           <div class="header-actions">
             <a class="btn btn-icon btn-soft-primary" href="/api/export/reports.csv" title="Export CSV" aria-label="Export CSV">
               <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
@@ -270,6 +280,12 @@
                 <div class="header-title">
                   <h4 class="card-title mb-1">Compliance trend</h4>
                   <p class="mb-0 text-muted">Aggregate volume and aligned traffic over time</p>
+                </div>
+                <div class="trend-range" role="group" aria-label="Timeline range">
+                  <button type="button" data-trend-range="1d" aria-pressed="false">24h</button>
+                  <button type="button" data-trend-range="7d" aria-pressed="false">7j</button>
+                  <button type="button" data-trend-range="30d" class="active" aria-pressed="true">30j</button>
+                  <button type="button" data-trend-range="365d" aria-pressed="false">1an</button>
                 </div>
               </div>
               <div class="card-body trend-card-body">

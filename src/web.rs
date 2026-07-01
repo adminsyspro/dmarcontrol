@@ -6,14 +6,14 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{middleware, Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::app::{AppState, Statistics};
 use crate::auth::{
     self, LoginRequest, OidcCallbackQuery, OidcSettingsInput, OidcSettingsResponse,
     ProvidersResponse, SessionResponse,
 };
-use crate::dmarc::Report;
+use crate::dmarc::{Record, Report};
 use crate::error::{AppError, Result};
 use crate::importer::Importer;
 use crate::insights;
@@ -91,6 +91,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/action-items", get(action_items))
         .route("/api/timeline", get(timeline))
         .route("/api/geo-sources", get(geo_sources))
+        .route("/api/search", get(search))
         .route("/api/reports", get(reports))
         .route("/api/reports/:id", get(report))
         .route("/api/top-sources", get(top_sources))
@@ -512,6 +513,123 @@ async fn geo_sources(State(state): State<Arc<AppState>>) -> Json<insights::GeoSo
     Json(insights::geo_sources(&reports, state.geoip.as_deref()))
 }
 
+async fn search(State(state): State<Arc<AppState>>, uri: Uri) -> Json<SearchResponse> {
+    let query: SearchQuery = serde_urlencoded::from_str(uri.query().unwrap_or_default())
+        .unwrap_or_else(|_| SearchQuery { q: String::new() });
+    let term = query.q.trim().to_lowercase();
+
+    if term.len() < 2 {
+        return Json(SearchResponse { results: vec![] });
+    }
+
+    let reports = state.store.list().await;
+    let domains = insights::domains(&reports);
+    let sources = insights::source_insights(&reports);
+    let actions = insights::action_items(&reports);
+    let mut results = Vec::new();
+
+    for domain in domains {
+        if matches_any(&term, [&domain.domain, &domain.policy, &domain.next_step]) {
+            results.push(SearchResult {
+                kind: "domain",
+                title: domain.domain.clone(),
+                subtitle: format!("{} messages · {} sources", domain.messages, domain.sources),
+                detail: format!("Policy {} · grade {} · {}", domain.policy, domain.grade, domain.next_step),
+                domain: Some(domain.domain),
+                source_ip: None,
+                report_id: None,
+            });
+        }
+    }
+
+    for source in sources {
+        if matches_any(&term, [&source.source_ip, &source.sender])
+            || source.domains.iter().any(|domain| matches_text(&term, domain))
+        {
+            results.push(SearchResult {
+                kind: "source",
+                title: if source.sender.is_empty() {
+                    source.source_ip.clone()
+                } else {
+                    source.sender.clone()
+                },
+                subtitle: format!("{} · {} messages", source.source_ip, source.messages),
+                detail: format!("{} · {}", source.domains.join(", "), source.risk),
+                domain: source.domains.first().cloned(),
+                source_ip: Some(source.source_ip),
+                report_id: None,
+            });
+        }
+    }
+
+    for item in actions {
+        if matches_any(
+            &term,
+            [
+                &item.domain,
+                &item.title,
+                &item.detail,
+                &item.recommendation,
+                &item.severity,
+            ],
+        ) {
+            results.push(SearchResult {
+                kind: "action",
+                title: item.title,
+                subtitle: format!("{} · {}", item.severity, item.domain),
+                detail: item.detail,
+                domain: Some(item.domain),
+                source_ip: None,
+                report_id: None,
+            });
+        }
+    }
+
+    for report in &reports {
+        if matches_any(&term, [&report.policy.domain, &report.org_name, &report.report_id]) {
+            results.push(SearchResult {
+                kind: "report",
+                title: report.policy.domain.clone(),
+                subtitle: format!("{} · {}", report.org_name, report.report_id),
+                detail: format!("{} to {}", report.begin.date_naive(), report.end.date_naive()),
+                domain: Some(report.policy.domain.clone()),
+                source_ip: None,
+                report_id: Some(report.id.clone()),
+            });
+        }
+
+        for record in &report.records {
+            if !record_matches(&term, record) {
+                continue;
+            }
+
+            results.push(SearchResult {
+                kind: "record",
+                title: if record.header_from.is_empty() {
+                    report.policy.domain.clone()
+                } else {
+                    record.header_from.clone()
+                },
+                subtitle: format!("{} · {} messages", record.source_ip, record.count),
+                detail: format!(
+                    "{} · DKIM {} · SPF {} · disposition {}",
+                    report.policy.domain, record.dkim, record.spf, record.disposition
+                ),
+                domain: Some(report.policy.domain.clone()),
+                source_ip: Some(record.source_ip.clone()),
+                report_id: Some(report.id.clone()),
+            });
+
+            if results.len() >= 50 {
+                return Json(SearchResponse { results });
+            }
+        }
+    }
+
+    results.truncate(50);
+    Json(SearchResponse { results })
+}
+
 async fn reports(State(state): State<Arc<AppState>>) -> Json<Vec<ReportSummary>> {
     let reports = state.store.list().await;
     Json(reports.iter().map(ReportSummary::from).collect())
@@ -683,6 +801,65 @@ fn static_bytes_response(body: &'static [u8], content_type: &'static str) -> Res
         body,
     )
         .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchQuery {
+    q: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchResponse {
+    results: Vec<SearchResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchResult {
+    kind: &'static str,
+    title: String,
+    subtitle: String,
+    detail: String,
+    domain: Option<String>,
+    source_ip: Option<String>,
+    report_id: Option<String>,
+}
+
+fn record_matches(term: &str, record: &Record) -> bool {
+    matches_any(
+        term,
+        [
+            &record.source_ip,
+            &record.header_from,
+            &record.envelope_from,
+            &record.identifiers.header_from,
+            &record.identifiers.envelope_from,
+            &record.dkim,
+            &record.spf,
+            &record.disposition,
+        ],
+    ) || record
+        .auth_results
+        .dkim
+        .iter()
+        .any(|result| matches_any(term, [&result.domain, &result.selector, &result.result]))
+        || record
+            .auth_results
+            .spf
+            .iter()
+            .any(|result| matches_any(term, [&result.domain, &result.scope, &result.result]))
+}
+
+fn matches_any<T>(term: &str, values: impl IntoIterator<Item = T>) -> bool
+where
+    T: AsRef<str>,
+{
+    values
+        .into_iter()
+        .any(|value| matches_text(term, value.as_ref()))
+}
+
+fn matches_text(term: &str, value: &str) -> bool {
+    value.to_lowercase().contains(term)
 }
 
 #[derive(Debug, Serialize)]

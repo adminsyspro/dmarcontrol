@@ -22,6 +22,7 @@ const state = {
   user: null,
   oidcSettings: null,
   mailboxSchedulerStatus: null,
+  trendRange: "30d",
   domainPage: 1,
   domainsPerPage: 12,
   domainSort: { key: "messages", direction: "desc" },
@@ -32,9 +33,14 @@ let geoLayerGroup = null;
 let activeTooltipTrigger = null;
 let appTooltip = null;
 let manualSidebarActiveUntil = 0;
+let searchTimer = null;
+let searchAbortController = null;
+let searchResults = [];
 
 const sidebarLinks = [...document.querySelectorAll(".sidebar .nav-link[href^='#']")];
 const themeToggle = document.getElementById("theme-toggle");
+const globalSearchInput = document.getElementById("global-search-input");
+const globalSearchResults = document.getElementById("global-search-results");
 
 syncThemeToggle();
 
@@ -72,6 +78,32 @@ document.getElementById("mailbox-sync").addEventListener("click", async () => {
 
 document.getElementById("report-select").addEventListener("change", (event) => {
   if (event.target.value) loadDetail(event.target.value);
+});
+
+globalSearchInput?.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const query = globalSearchInput.value.trim();
+  if (query.length < 2) {
+    hideGlobalSearch();
+    return;
+  }
+
+  searchTimer = setTimeout(() => runGlobalSearch(query), 180);
+});
+
+globalSearchInput?.addEventListener("focus", () => {
+  if (globalSearchInput.value.trim().length >= 2 && searchResults.length) showGlobalSearch();
+});
+
+globalSearchInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    hideGlobalSearch();
+    globalSearchInput.blur();
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".global-search")) hideGlobalSearch();
 });
 
 sidebarLinks.forEach((link) => {
@@ -116,6 +148,14 @@ document.querySelectorAll("[data-domain-sort]").forEach((button) => {
     }
     state.domainPage = 1;
     renderDomains();
+  });
+});
+
+document.querySelectorAll("[data-trend-range]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.trendRange = button.dataset.trendRange;
+    renderTrendRange();
+    renderTrend();
   });
 });
 
@@ -273,6 +313,7 @@ async function load() {
 
   renderProfile();
   renderOverview();
+  renderTrendRange();
   renderTrend();
   renderProtocols();
   renderGeoMap();
@@ -289,6 +330,105 @@ async function fetchJson(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Request failed: ${url}`);
   return response.json();
+}
+
+async function runGlobalSearch(query) {
+  searchAbortController?.abort();
+  searchAbortController = new AbortController();
+  renderGlobalSearchStatus("Searching...");
+
+  try {
+    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+      signal: searchAbortController.signal,
+    });
+    if (!response.ok) throw new Error("Search failed");
+    const payload = await response.json();
+    searchResults = payload.results || [];
+    renderGlobalSearchResults(searchResults, query);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    renderGlobalSearchStatus("Search unavailable.");
+  }
+}
+
+function renderGlobalSearchStatus(message) {
+  globalSearchResults.innerHTML = `<div class="global-search-state">${escapeHtml(message)}</div>`;
+  showGlobalSearch();
+}
+
+function renderGlobalSearchResults(results, query) {
+  if (!results.length) {
+    renderGlobalSearchStatus(`No result for "${query}".`);
+    return;
+  }
+
+  globalSearchResults.innerHTML = results
+    .map(
+      (result, index) => `
+      <button class="global-search-result" type="button" data-search-index="${index}">
+        <span class="global-search-kind">${escapeHtml(result.kind)}</span>
+        <strong>${escapeHtml(result.title)}</strong>
+        <small>${escapeHtml(result.subtitle)}</small>
+        <em>${escapeHtml(result.detail)}</em>
+      </button>
+    `,
+    )
+    .join("");
+
+  globalSearchResults.querySelectorAll("[data-search-index]").forEach((button) => {
+    button.addEventListener("click", () => openSearchResult(searchResults[Number(button.dataset.searchIndex)]));
+  });
+  showGlobalSearch();
+}
+
+function showGlobalSearch() {
+  globalSearchResults.hidden = false;
+  globalSearchInput.setAttribute("aria-expanded", "true");
+}
+
+function hideGlobalSearch() {
+  globalSearchResults.hidden = true;
+  globalSearchInput?.setAttribute("aria-expanded", "false");
+}
+
+async function openSearchResult(result) {
+  if (!result) return;
+  hideGlobalSearch();
+
+  if (result.kind === "domain" && result.domain) {
+    revealSection("#domains");
+    openDomainModal(result.domain);
+    return;
+  }
+
+  if (result.kind === "report" || result.kind === "record") {
+    revealSection("#evidence");
+    if (result.report_id) {
+      document.getElementById("report-select").value = result.report_id;
+      await loadDetail(result.report_id);
+    }
+    return;
+  }
+
+  if (result.kind === "action") {
+    revealSection("#remediation");
+    return;
+  }
+
+  if (result.kind === "source") {
+    revealSection("#sources");
+    return;
+  }
+
+  revealSection(result.domain ? "#domains" : "#sources");
+}
+
+function revealSection(hash) {
+  const target = document.querySelector(hash);
+  if (!target) return;
+  setActiveSidebarLink(hash);
+  history.pushState(null, "", hash);
+  target.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
 }
 
 async function refreshMailboxSchedulerStatus() {
@@ -359,17 +499,25 @@ function renderTrend() {
   const trend = document.getElementById("trend");
   trend.innerHTML = "";
   if (!state.timeline.length) {
-    trend.innerHTML = `<div class="empty">No report history yet.</div>`;
+    trend.classList.add("trend-empty-state");
+    trend.innerHTML = `<div class="empty trend-empty">No report history yet.</div>`;
+    return;
+  }
+  trend.classList.remove("trend-empty-state");
+
+  const points = filteredTrendPoints();
+  if (!points.length) {
+    trend.classList.add("trend-empty-state");
+    trend.innerHTML = `<div class="empty trend-empty">No report history in this range.</div>`;
     return;
   }
 
-  const points = state.timeline.slice(-18);
   const max = Math.max(...points.map((point) => point.messages), 1);
   const messagePoints = trendPoints(points, max, "messages");
   const alignedPoints = trendPoints(points, max, "aligned");
   const lastMessagePoint = messagePoints[messagePoints.length - 1];
   const areaPath = `${linePath(messagePoints)} L ${lastMessagePoint.x} 220 L ${messagePoints[0].x} 220 Z`;
-  const labels = points.filter((_, index) => index === 0 || index === points.length - 1 || index % 4 === 0);
+  const labels = trendLabels(points);
 
   trend.innerHTML = `
     <div class="trend-graph">
@@ -395,7 +543,8 @@ function renderTrend() {
         ${labels
           .map((point) => {
             const index = points.indexOf(point);
-            return `<text class="trend-label" x="${messagePoints[index].x}" y="244">${escapeHtml(shortDate(point.date))}</text>`;
+            const edgeClass = index === 0 ? " trend-label-start" : index === points.length - 1 ? " trend-label-end" : "";
+            return `<text class="trend-label${edgeClass}" x="${messagePoints[index].x}" y="244">${escapeHtml(shortDate(point.date))}</text>`;
           })
           .join("")}
       </svg>
@@ -405,6 +554,31 @@ function renderTrend() {
       </div>
     </div>
   `;
+}
+
+function renderTrendRange() {
+  document.querySelectorAll("[data-trend-range]").forEach((button) => {
+    const active = button.dataset.trendRange === state.trendRange;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function filteredTrendPoints() {
+  const days = Number(state.trendRange.replace("d", "")) || 1;
+  const points = state.timeline
+    .map((point) => ({ ...point, timestamp: Date.parse(point.date) }))
+    .filter((point) => Number.isFinite(point.timestamp));
+  if (!points.length) return [];
+
+  const latest = Math.max(...points.map((point) => point.timestamp));
+  const start = latest - (days - 1) * 24 * 60 * 60 * 1000;
+  return points.filter((point) => point.timestamp >= start);
+}
+
+function trendLabels(points) {
+  const interval = Math.max(1, Math.ceil(points.length / 6));
+  return points.filter((_, index) => index === 0 || index === points.length - 1 || index % interval === 0);
 }
 
 function trendPoints(points, max, key) {

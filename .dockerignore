@@ -1,0 +1,11 @@
+.git
+.github
+.agents
+.codex
+target
+data
+fixtures
+examples
+*.log
+*.tmp
+dmarcontrol

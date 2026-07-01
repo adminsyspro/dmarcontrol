@@ -1,0 +1,17 @@
+services:
+  dmarcontrol:
+    image: ghcr.io/adminsyspro/dmarcontrol:latest
+    container_name: dmarcontrol
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADDR: 0.0.0.0:8080
+      DATA_DIR: /app/data
+      DMARCONTROL_APP_SECRET: ${DMARCONTROL_APP_SECRET:?set DMARCONTROL_APP_SECRET in .env}
+      DMARCONTROL_ADMIN_PASSWORD: ${DMARCONTROL_ADMIN_PASSWORD:?set DMARCONTROL_ADMIN_PASSWORD in .env}
+    volumes:
+      - dmarcontrol-data:/app/data
+
+volumes:
+  dmarcontrol-data:
