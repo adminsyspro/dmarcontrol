@@ -25,10 +25,10 @@ RUN apt-get update \
 
 WORKDIR /app
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /usr/local/share/dmarcontrol
 
 COPY --from=builder /app/target/release/dmarcontrol /usr/local/bin/dmarcontrol
-COPY --from=builder /tmp/ip66.mmdb /app/data/ip66.mmdb
+COPY --from=builder /tmp/ip66.mmdb /usr/local/share/dmarcontrol/ip66.mmdb
 
 RUN chown -R dmarcontrol:dmarcontrol /app
 

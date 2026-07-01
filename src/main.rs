@@ -23,6 +23,8 @@ use mailbox::{MailboxConfig, MailboxImporter};
 use store::Store;
 use tracing_subscriber::EnvFilter;
 
+const BUNDLED_GEOIP_DB_PATH: &str = "/usr/local/share/dmarcontrol/ip66.mmdb";
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -32,20 +34,7 @@ async fn main() -> Result<()> {
     let config = Config::from_env();
     let store = Arc::new(Store::open(config.data_dir.join("dmarcontrol.sqlite")).await?);
     seed_admin_user(&store).await?;
-    let geoip = match GeoIpResolver::open(&config.geoip_db_path) {
-        Ok(resolver) => {
-            tracing::info!("loaded IP66 GeoIP database from {:?}", config.geoip_db_path);
-            Some(Arc::new(resolver))
-        }
-        Err(err) => {
-            tracing::warn!(
-                "IP66 GeoIP database not loaded from {:?}: {}",
-                config.geoip_db_path,
-                err
-            );
-            None
-        }
-    };
+    let geoip = load_geoip(&config.geoip_db_paths);
     let state = AppState::new(store.clone(), geoip);
     scheduler::spawn_mailbox_scheduler(state.clone());
 
@@ -84,6 +73,25 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn load_geoip(paths: &[PathBuf]) -> Option<Arc<GeoIpResolver>> {
+    let mut errors = Vec::new();
+    for path in paths {
+        match GeoIpResolver::open(path) {
+            Ok(resolver) => {
+                tracing::info!("loaded IP66 GeoIP database from {:?}", path);
+                return Some(Arc::new(resolver));
+            }
+            Err(err) => errors.push(format!("{:?}: {}", path, err)),
+        }
+    }
+
+    tracing::warn!(
+        "IP66 GeoIP database not loaded; attempted {}",
+        errors.join("; ")
+    );
+    None
+}
+
 async fn seed_admin_user(store: &Store) -> Result<()> {
     if store.has_users().await? {
         return Ok(());
@@ -109,7 +117,7 @@ async fn seed_admin_user(store: &Store) -> Result<()> {
 struct Config {
     addr: SocketAddr,
     data_dir: PathBuf,
-    geoip_db_path: PathBuf,
+    geoip_db_paths: Vec<PathBuf>,
     import_path: Option<PathBuf>,
     import_mailbox: bool,
 }
@@ -120,9 +128,7 @@ impl Config {
         let mut data_dir =
             PathBuf::from(env::var("DATA_DIR").unwrap_or_else(|_| "data".to_string()));
         let geoip_db_from_env = env::var("DMARCONTROL_GEOIP_DB").ok().map(PathBuf::from);
-        let mut geoip_db_path = geoip_db_from_env
-            .clone()
-            .unwrap_or_else(|| data_dir.join("ip66.mmdb"));
+        let mut geoip_db_paths = geoip_paths(&data_dir, geoip_db_from_env.clone());
         let mut geoip_db_explicit = geoip_db_from_env.is_some();
         let mut import_path = None;
         let mut import_mailbox = false;
@@ -139,13 +145,13 @@ impl Config {
                     if let Some(value) = args.next() {
                         data_dir = PathBuf::from(value);
                         if !geoip_db_explicit {
-                            geoip_db_path = data_dir.join("ip66.mmdb");
+                            geoip_db_paths = geoip_paths(&data_dir, None);
                         }
                     }
                 }
                 "--geoip-db" => {
                     if let Some(value) = args.next() {
-                        geoip_db_path = PathBuf::from(value);
+                        geoip_db_paths = geoip_paths(&data_dir, Some(PathBuf::from(value)));
                         geoip_db_explicit = true;
                     }
                 }
@@ -172,10 +178,21 @@ impl Config {
         Self {
             addr,
             data_dir,
-            geoip_db_path,
+            geoip_db_paths,
             import_path,
             import_mailbox,
         }
+    }
+}
+
+fn geoip_paths(data_dir: &std::path::Path, explicit: Option<PathBuf>) -> Vec<PathBuf> {
+    if let Some(path) = explicit {
+        vec![path]
+    } else {
+        vec![
+            data_dir.join("ip66.mmdb"),
+            PathBuf::from(BUNDLED_GEOIP_DB_PATH),
+        ]
     }
 }
 
