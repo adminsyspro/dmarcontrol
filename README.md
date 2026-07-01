@@ -2,8 +2,6 @@
   <img src="static/brand/dmarcontrol-logo-dark.svg" alt="Dmarcontrol" width="360">
 </p>
 
-<h1 align="center">Dmarcontrol</h1>
-
 <p align="center">
   Self-hosted DMARC aggregate report viewer for teams that want local storage, fast inspection, and a small operational footprint.
 </p>
