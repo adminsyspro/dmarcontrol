@@ -1,10 +1,12 @@
 <p align="center">
-  <img src="static/brand/dmarcontrol-logo.svg" alt="Dmarcontrol" width="360">
+  <img src="static/brand/dmarcontrol-logo-dark.svg" alt="Dmarcontrol" width="360">
 </p>
 
-# Dmarcontrol
+<h1 align="center">Dmarcontrol</h1>
 
-Self-hosted DMARC aggregate report viewer for teams that want local storage, fast inspection, and a small operational footprint.
+<p align="center">
+  Self-hosted DMARC aggregate report viewer for teams that want local storage, fast inspection, and a small operational footprint.
+</p>
 
 [![Docker image](https://github.com/adminsyspro/dmarcontrol/actions/workflows/docker-image.yml/badge.svg)](https://github.com/adminsyspro/dmarcontrol/actions/workflows/docker-image.yml)
 
