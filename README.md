@@ -6,8 +6,6 @@
   Self-hosted DMARC aggregate report viewer for teams that want local storage, fast inspection, and a small operational footprint.
 </p>
 
-[![Docker image](https://github.com/adminsyspro/dmarcontrol/actions/workflows/docker-image.yml/badge.svg)](https://github.com/adminsyspro/dmarcontrol/actions/workflows/docker-image.yml)
-
 ---
 
 ## Overview
