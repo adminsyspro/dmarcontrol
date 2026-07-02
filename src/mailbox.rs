@@ -103,11 +103,7 @@ impl MailboxSettings {
             mailbox: self.mailbox.trim().to_string(),
             unseen_only: self.unseen_only,
             mark_seen: self.mark_seen,
-            max_messages: if self.max_messages == 0 {
-                500
-            } else {
-                self.max_messages
-            },
+            max_messages: self.max_messages,
             since_hours: self.since_hours,
         })
     }
@@ -121,11 +117,7 @@ impl MailboxSettings {
             mailbox: self.mailbox.clone(),
             unseen_only: self.unseen_only,
             mark_seen: self.mark_seen,
-            max_messages: if self.max_messages == 0 {
-                500
-            } else {
-                self.max_messages
-            },
+            max_messages: self.max_messages,
             since_hours: self.since_hours,
             scheduler_enabled: self.scheduler_enabled,
             scheduler_interval_minutes: if self.scheduler_interval_minutes == 0 {
@@ -221,7 +213,7 @@ fn test_connection_blocking(config: MailboxConfig) -> Result<MailboxTestResult> 
         unseen_count: mailbox.unseen,
         matched_count,
         max_messages: config.max_messages,
-        would_scan: matched_count.min(config.max_messages.max(1)),
+        would_scan: limited_message_count(matched_count, config.max_messages),
     })
 }
 
@@ -303,7 +295,9 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
 
     let mut ids = matched_ids.clone();
     ids.reverse();
-    ids.truncate(config.max_messages.max(1));
+    if config.max_messages > 0 {
+        ids.truncate(config.max_messages);
+    }
     let mut attachments = Vec::new();
     let mut failed_attachments = Vec::new();
 
@@ -343,6 +337,14 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
         attachments,
         failed_attachments,
     })
+}
+
+fn limited_message_count(message_count: usize, max_messages: usize) -> usize {
+    if max_messages == 0 {
+        message_count
+    } else {
+        message_count.min(max_messages)
+    }
 }
 
 fn imap_search_query(config: &MailboxConfig) -> String {
@@ -500,6 +502,13 @@ fn default_scheduler_interval_minutes() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_max_messages_means_no_limit() {
+        assert_eq!(limited_message_count(42, 0), 42);
+        assert_eq!(limited_message_count(42, 10), 10);
+        assert_eq!(limited_message_count(5, 10), 5);
+    }
 
     #[test]
     fn extracts_xml_gzip_attachment_from_message() {

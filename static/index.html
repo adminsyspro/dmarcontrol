@@ -535,8 +535,8 @@
                   </div>
                   <div class="col-md-6">
                     <label class="form-label" for="mailbox-max-messages">Max emails per sync</label>
-                    <input id="mailbox-max-messages" class="form-control" name="max_messages" type="number" min="1" max="10000" value="500">
-                    <div class="form-text">Keep this low for large mailboxes. Increase gradually.</div>
+                    <input id="mailbox-max-messages" class="form-control" name="max_messages" type="number" min="0" max="10000" value="500">
+                    <div class="form-text">Use 0 for no limit. Keep this low for large mailboxes.</div>
                   </div>
                   <div class="col-md-6">
                     <label class="form-label" for="mailbox-since-hours">Antériorité</label>

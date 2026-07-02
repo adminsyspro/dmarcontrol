@@ -2289,7 +2289,7 @@ function fillMailboxForm(settings) {
   document.getElementById("mailbox-port").value = settings.port || 993;
   document.getElementById("mailbox-username").value = settings.username || "";
   document.getElementById("mailbox-folder").value = settings.mailbox || "INBOX";
-  document.getElementById("mailbox-max-messages").value = settings.max_messages || 500;
+  document.getElementById("mailbox-max-messages").value = settings.max_messages ?? 500;
   document.getElementById("mailbox-since-hours").value = String(settings.since_hours ?? 24);
   document.getElementById("mailbox-unseen-only").checked = settings.unseen_only ?? true;
   document.getElementById("mailbox-mark-seen").checked = settings.mark_seen ?? false;

@@ -40,6 +40,8 @@ Then open `http://your-server:8080`.
 
 Default local username is `admin`. If `DMARCONTROL_ADMIN_PASSWORD` is not set before the first start, the first local admin password defaults to `admin`.
 
+If Docker reports `error from registry: unauthorized` when pulling from `ghcr.io/adminsyspro/dmarcontrol`, make the GitHub Container Registry package public in the package settings. The Docker workflow publishes the `latest` tag from the default branch.
+
 ### Docker Compose
 
 ```bash
