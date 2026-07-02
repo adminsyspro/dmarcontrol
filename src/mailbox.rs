@@ -1,4 +1,5 @@
 use std::env;
+use std::net::TcpStream;
 use std::sync::Arc;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -11,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::error::{AppError, Result};
 use crate::importer::{is_supported_report_filename, parse_payload};
 use crate::store::Store;
+
+const MESSAGE_FETCH_QUERY: &str = "BODY.PEEK[]";
 
 #[derive(Debug, Clone)]
 pub struct MailboxConfig {
@@ -203,8 +206,13 @@ fn test_connection_blocking(config: MailboxConfig) -> Result<MailboxTestResult> 
     let mut session = client
         .login(&config.username, &config.password)
         .map_err(|(err, _)| AppError::Mailbox(format!("IMAP login failed: {err}")))?;
-    let mailbox = session.select(&config.mailbox)?;
-    let matched_count = session.search(imap_search_query(&config))?.len();
+    let mailbox = session
+        .select(&config.mailbox)
+        .map_err(|err| imap_step_error("select mailbox", err))?;
+    let matched_count = session
+        .search(imap_search_query(&config))
+        .map_err(|err| imap_step_error("search mailbox", err))?
+        .len();
     session.logout()?;
     Ok(MailboxTestResult {
         ok: true,
@@ -271,15 +279,13 @@ struct MailboxAttachment {
 }
 
 fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
-    let tls = native_tls::TlsConnector::builder().build()?;
-    let client = imap::connect((config.host.as_str(), config.port), &config.host, &tls)?;
-    let mut session = client
-        .login(&config.username, &config.password)
-        .map_err(|(err, _)| AppError::Mailbox(format!("IMAP login failed: {err}")))?;
-
-    session.select(&config.mailbox)?;
+    let mut session = connect_selected_mailbox(&config)?;
     let query = imap_search_query(&config);
-    let mut matched_ids = session.search(query)?.into_iter().collect::<Vec<_>>();
+    let mut matched_ids = session
+        .search(query)
+        .map_err(|err| imap_step_error("search mailbox", err))?
+        .into_iter()
+        .collect::<Vec<_>>();
     matched_ids.sort_unstable();
 
     if matched_ids.is_empty() {
@@ -300,6 +306,7 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
     }
     let mut attachments = Vec::new();
     let mut failed_attachments = Vec::new();
+    let mut scanned_ids = Vec::new();
 
     for chunk in ids.chunks(50) {
         let sequence_set = chunk
@@ -307,36 +314,99 @@ fn fetch_attachments(config: MailboxConfig) -> Result<FetchedMailbox> {
             .map(u32::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        let messages = session.fetch(&sequence_set, "RFC822")?;
-        for message in messages.iter() {
-            if let Some(body) = message.body() {
-                match parse_mail(body) {
-                    Ok(parsed) => {
-                        collect_attachments(&parsed, &mut attachments, &mut failed_attachments)?
+        match session.fetch(&sequence_set, MESSAGE_FETCH_QUERY) {
+            Ok(messages) => {
+                collect_messages(&messages, &mut attachments, &mut failed_attachments)?;
+                scanned_ids.extend_from_slice(chunk);
+            }
+            Err(err) => {
+                failed_attachments.push(format!(
+                    "messages {sequence_set}: IMAP batch fetch failed: {err}; retrying individually"
+                ));
+                let _ = session.logout();
+                session = connect_selected_mailbox(&config)?;
+
+                for id in chunk {
+                    match session.fetch(id.to_string(), MESSAGE_FETCH_QUERY) {
+                        Ok(messages) => {
+                            collect_messages(&messages, &mut attachments, &mut failed_attachments)?;
+                            scanned_ids.push(*id);
+                        }
+                        Err(err) => {
+                            failed_attachments
+                                .push(format!("message {id}: IMAP fetch failed: {err}"));
+                            let _ = session.logout();
+                            session = connect_selected_mailbox(&config)?;
+                        }
                     }
-                    Err(err) => failed_attachments.push(format!(
-                        "message {}: email parse error: {}",
-                        message.message, err
-                    )),
                 }
             }
         }
     }
 
     if config.mark_seen {
-        let sequence_set = ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
-        session.store(&sequence_set, "+FLAGS (\\Seen)")?;
+        for chunk in scanned_ids.chunks(50) {
+            let sequence_set = chunk
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            session
+                .store(&sequence_set, "+FLAGS (\\Seen)")
+                .map_err(|err| imap_step_error("mark messages as seen", err))?;
+        }
     }
 
     session.logout()?;
     let attachments_found = attachments.len();
     Ok(FetchedMailbox {
-        messages_scanned: ids.len(),
+        messages_scanned: scanned_ids.len(),
         messages_matched: matched_ids.len(),
         attachments_found,
         attachments,
         failed_attachments,
     })
+}
+
+fn connect_selected_mailbox(
+    config: &MailboxConfig,
+) -> Result<imap::Session<native_tls::TlsStream<TcpStream>>> {
+    let tls = native_tls::TlsConnector::builder().build()?;
+    let client = imap::connect((config.host.as_str(), config.port), &config.host, &tls)
+        .map_err(|err| imap_step_error("connect to server", err))?;
+    let mut session = client
+        .login(&config.username, &config.password)
+        .map_err(|(err, _)| AppError::Mailbox(format!("IMAP login failed: {err}")))?;
+    session
+        .select(&config.mailbox)
+        .map_err(|err| imap_step_error("select mailbox", err))?;
+    Ok(session)
+}
+
+fn collect_messages(
+    messages: &[imap::types::Fetch],
+    attachments: &mut Vec<MailboxAttachment>,
+    failed_attachments: &mut Vec<String>,
+) -> Result<()> {
+    for message in messages {
+        if let Some(body) = message.body() {
+            match parse_mail(body) {
+                Ok(parsed) => collect_attachments(&parsed, attachments, failed_attachments)?,
+                Err(err) => failed_attachments.push(format!(
+                    "message {}: email parse error: {}",
+                    message.message, err
+                )),
+            }
+        } else {
+            failed_attachments.push(format!("message {}: IMAP body missing", message.message));
+        }
+    }
+
+    Ok(())
+}
+
+fn imap_step_error(step: &str, err: imap::Error) -> AppError {
+    AppError::Mailbox(format!("IMAP {step} failed: {err}"))
 }
 
 fn limited_message_count(message_count: usize, max_messages: usize) -> usize {
