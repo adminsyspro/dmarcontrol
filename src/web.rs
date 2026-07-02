@@ -1045,7 +1045,10 @@ async fn mailbox_config_for_state(state: &Arc<AppState>) -> Result<MailboxConfig
 
 fn static_response(body: &'static str, content_type: &'static str) -> Response {
     (
-        [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+        ],
         body,
     )
         .into_response()
@@ -1053,7 +1056,10 @@ fn static_response(body: &'static str, content_type: &'static str) -> Response {
 
 fn static_bytes_response(body: &'static [u8], content_type: &'static str) -> Response {
     (
-        [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+        ],
         body,
     )
         .into_response()
