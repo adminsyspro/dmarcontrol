@@ -146,21 +146,6 @@
                 <path d="M17 6h4V2" />
               </svg>
             </button>
-            <form id="upload-form" class="header-upload-form">
-              <label class="btn btn-icon btn-soft-info mb-0" title="Select reports" aria-label="Select reports">
-                <input id="file-input" name="file" class="visually-hidden" type="file" accept=".xml,.gz,.zip" multiple>
-                <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
-                  <path d="M12 21V9" />
-                  <path d="M7 14l5-5 5 5" />
-                  <path d="M5 3h14" />
-                </svg>
-              </label>
-              <button class="btn btn-icon btn-success" type="submit" title="Process selected reports" aria-label="Process selected reports">
-                <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
-                  <path d="M5 12l5 5L20 7" />
-                </svg>
-              </button>
-            </form>
             <button id="theme-toggle" class="btn btn-icon btn-soft-secondary" type="button" title="Toggle dark theme" aria-label="Toggle dark theme">
               <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
                 <path d="M12 4V2" />
@@ -777,6 +762,20 @@
           <button id="score-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
         </header>
         <div id="score-modal-body" class="domain-modal-body"></div>
+      </section>
+    </div>
+
+    <div id="policy-detail-modal" class="domain-modal" hidden>
+      <div class="domain-modal-backdrop" data-policy-modal-close></div>
+      <section class="domain-modal-panel score-modal-panel" role="dialog" aria-modal="true" aria-labelledby="policy-modal-title">
+        <header class="domain-modal-header">
+          <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Policy posture</p>
+            <h3 id="policy-modal-title" class="mb-0">Policy</h3>
+          </div>
+          <button id="policy-modal-close" class="btn btn-sm btn-outline-secondary" type="button">Close</button>
+        </header>
+        <div id="policy-modal-body" class="domain-modal-body"></div>
       </section>
     </div>
 

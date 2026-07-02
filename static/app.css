@@ -330,8 +330,7 @@ body.bg-soft-light {
   overflow-wrap: anywhere;
 }
 
-.header-actions,
-.header-upload-form {
+.header-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -901,13 +900,32 @@ body.bg-soft-light {
   gap: 0.55rem;
 }
 
-.policy-donut-legend span {
+.policy-legend-item {
+  width: 100%;
   display: grid;
   grid-template-columns: 0.7rem minmax(0, 1fr) max-content;
   align-items: center;
   gap: 0.55rem;
+  padding: 0.2rem 0.25rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
   color: var(--dm-help);
   font-size: 0.82rem;
+  text-align: left;
+}
+
+.policy-legend-item:hover,
+.policy-legend-item:focus {
+  outline: none;
+  background: rgba(58, 87, 232, 0.07);
+}
+
+.policy-legend-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .policy-donut-legend i {

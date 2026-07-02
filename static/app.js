@@ -52,7 +52,7 @@ themeToggle?.addEventListener("click", () => {
   applyTheme(current === "dark" ? "light" : "dark");
 });
 
-document.getElementById("upload-form").addEventListener("submit", async (event) => {
+document.getElementById("upload-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = document.getElementById("file-input");
   const status = document.getElementById("upload-status");
@@ -177,6 +177,8 @@ document.getElementById("action-modal-close").addEventListener("click", closeAct
 document.querySelector("[data-action-modal-close]").addEventListener("click", closeActionModal);
 document.getElementById("score-modal-close").addEventListener("click", closeScoreModal);
 document.querySelector("[data-score-modal-close]").addEventListener("click", closeScoreModal);
+document.getElementById("policy-modal-close").addEventListener("click", closePolicyModal);
+document.querySelector("[data-policy-modal-close]").addEventListener("click", closePolicyModal);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeDomainModal();
@@ -184,6 +186,7 @@ document.addEventListener("keydown", (event) => {
     closeSourceModal();
     closeActionModal();
     closeScoreModal();
+    closePolicyModal();
   }
 });
 
@@ -765,16 +768,20 @@ function renderPolicyPostureVisual() {
       <div class="policy-donut-legend">
         ${policies
           .map((policy) => `
-            <span>
+            <button class="policy-legend-item" type="button" data-policy-detail="${escapeHtml(policy)}" aria-label="Show ${escapeHtml(policy)} policy domains">
               <i style="background: ${policyChartColor(policy)}"></i>
-              ${escapeHtml(policy)}
+              <span>${escapeHtml(policy)}</span>
               <strong>${formatNumber.format(counts.get(policy) || 0)}</strong>
-            </span>
+            </button>
           `)
           .join("")}
       </div>
     </div>
   `;
+
+  target.querySelectorAll("[data-policy-detail]").forEach((button) => {
+    button.addEventListener("click", () => openPolicyModal(button.dataset.policyDetail));
+  });
 }
 
 function renderScoreHistogramVisual() {
@@ -857,10 +864,105 @@ function closeScoreModal() {
     document.getElementById("domain-detail-modal")?.hidden &&
     document.getElementById("protocol-detail-modal")?.hidden &&
     document.getElementById("source-detail-modal")?.hidden &&
-    document.getElementById("action-detail-modal")?.hidden
+    document.getElementById("action-detail-modal")?.hidden &&
+    document.getElementById("policy-detail-modal")?.hidden
   ) {
     document.body.classList.remove("modal-open");
   }
+}
+
+function openPolicyModal(policy) {
+  const modal = document.getElementById("policy-detail-modal");
+  const title = document.getElementById("policy-modal-title");
+  const body = document.getElementById("policy-modal-body");
+  if (!modal || !title || !body) return;
+
+  const normalizedPolicy = ["reject", "quarantine", "none"].includes(policy) ? policy : "unknown";
+  const domains = state.domains
+    .filter((domain) => {
+      const domainPolicy = ["reject", "quarantine", "none"].includes(domain.policy) ? domain.policy : "unknown";
+      return domainPolicy === normalizedPolicy;
+    })
+    .sort((left, right) => Number(right.messages || 0) - Number(left.messages || 0) || left.domain.localeCompare(right.domain));
+
+  title.textContent = `p=${normalizedPolicy}`;
+  body.innerHTML = renderPolicyDetail(normalizedPolicy, domains);
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+
+  body.querySelectorAll("[data-policy-domain]").forEach((button) => {
+    button.addEventListener("click", () => {
+      closePolicyModal();
+      openDomainModal(button.dataset.policyDomain);
+    });
+  });
+}
+
+function closePolicyModal() {
+  const modal = document.getElementById("policy-detail-modal");
+  if (!modal) return;
+  modal.hidden = true;
+  if (
+    document.getElementById("domain-detail-modal")?.hidden &&
+    document.getElementById("protocol-detail-modal")?.hidden &&
+    document.getElementById("source-detail-modal")?.hidden &&
+    document.getElementById("action-detail-modal")?.hidden &&
+    document.getElementById("score-detail-modal")?.hidden
+  ) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function renderPolicyDetail(policy, domains) {
+  if (!domains.length) {
+    return `<div class="empty">No domains currently use this policy.</div>`;
+  }
+
+  const messages = domains.reduce((sum, domain) => sum + Number(domain.messages || 0), 0);
+  const aligned = domains.reduce((sum, domain) => sum + Number(domain.aligned || 0), 0);
+  const alignment = messages === 0 ? 0 : (aligned / messages) * 100;
+  const status = domainPolicyStatus(policy);
+
+  return `
+    <div class="score-modal-summary ${status}">
+      <span>${escapeHtml(domainPolicyTooltip(policy))}</span>
+      <strong>${formatNumber.format(domains.length)} ${domains.length === 1 ? "domain" : "domains"}</strong>
+      <p>${formatNumber.format(messages)} messages · ${alignment.toFixed(1)}% aligned</p>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle score-domain-table">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th class="text-end">Score</th>
+            <th class="text-end">Messages</th>
+            <th class="text-end">Alignment</th>
+            <th class="text-end">Sources</th>
+            <th>Next step</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${domains
+            .map((domain) => {
+              const domainAlignment = domain.messages === 0 ? 0 : (domain.aligned / domain.messages) * 100;
+              return `
+                <tr>
+                  <td>
+                    <button class="score-domain-link" type="button" data-policy-domain="${escapeHtml(domain.domain)}">${escapeHtml(domain.domain)}</button>
+                  </td>
+                  <td class="text-end"><span class="status-badge grade ${domainGradeStatus(domain.score)}">${Number(domain.score || 0)}/100</span></td>
+                  <td class="text-end">${formatNumber.format(domain.messages || 0)}</td>
+                  <td class="text-end">${domainAlignment.toFixed(1)}%</td>
+                  <td class="text-end">${formatNumber.format(domain.sources || 0)}</td>
+                  <td>${escapeHtml(domain.next_step)}</td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderScoreRangeDetail(bin) {
