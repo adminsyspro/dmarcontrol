@@ -1658,13 +1658,30 @@ function renderTrend() {
         <path class="trend-line trend-line-total" d="${linePath(messagePoints)}" />
         <path class="trend-line trend-line-aligned" d="${linePath(alignedPoints)}" />
         ${messagePoints
-          .map(
-            (point, index) => `
-            <circle class="trend-point" cx="${point.x}" cy="${point.y}" r="3.5">
-              <title>${escapeHtml(shortDate(points[index].date))} · ${formatNumber.format(points[index].messages)} messages · ${formatNumber.format(points[index].aligned)} aligned</title>
-            </circle>
-          `,
-          )
+          .map((point, index) => {
+            const source = points[index];
+            const aligned = Number(source.aligned || 0);
+            const messages = Number(source.messages || 0);
+            const rate = messages ? (aligned / messages) * 100 : 0;
+            const detail = `Messages · ${shortDate(source.date)} · ${formatNumber.format(messages)} total · ${formatNumber.format(aligned)} aligned · ${rate.toFixed(1)}% pass`;
+            return `
+              <circle class="trend-hitpoint" cx="${point.x}" cy="${point.y}" r="10" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}"></circle>
+              <circle class="trend-point trend-point-total" cx="${point.x}" cy="${point.y}" r="3.7" aria-hidden="true"></circle>
+            `;
+          })
+          .join("")}
+        ${alignedPoints
+          .map((point, index) => {
+            const source = points[index];
+            const aligned = Number(source.aligned || 0);
+            const messages = Number(source.messages || 0);
+            const rate = messages ? (aligned / messages) * 100 : 0;
+            const detail = `Aligned · ${shortDate(source.date)} · ${formatNumber.format(aligned)} aligned · ${formatNumber.format(messages)} total · ${rate.toFixed(1)}% pass`;
+            return `
+              <circle class="trend-hitpoint trend-hitpoint-aligned" cx="${point.x}" cy="${point.y}" r="10" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}"></circle>
+              <circle class="trend-point trend-point-aligned" cx="${point.x}" cy="${point.y}" r="3.4" aria-hidden="true"></circle>
+            `;
+          })
           .join("")}
         ${labels
           .map((point) => {
@@ -1811,8 +1828,9 @@ function renderParsedDispositionChart() {
           const quarantined = Number(point.quarantined || 0);
           const none = Math.max(0, Number(point.messages || 0) - rejected - quarantined);
           const height = Math.max(5, (Number(point.messages || 0) / max) * 100);
+          const detail = `${shortDate(point.date)} · ${formatNumber.format(point.messages)} messages · none ${formatNumber.format(none)} · quarantine ${formatNumber.format(quarantined)} · reject ${formatNumber.format(rejected)}`;
           return `
-            <div class="parsed-disposition-bar" style="height: ${height}%" title="${escapeHtml(shortDate(point.date))} · ${formatNumber.format(point.messages)} messages">
+            <div class="parsed-disposition-bar" style="height: ${height}%" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}">
               <i class="none" style="height: ${(none / Math.max(point.messages, 1)) * 100}%"></i>
               <i class="quarantine" style="height: ${(quarantined / Math.max(point.messages, 1)) * 100}%"></i>
               <i class="reject" style="height: ${(rejected / Math.max(point.messages, 1)) * 100}%"></i>
