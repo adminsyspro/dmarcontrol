@@ -1210,6 +1210,154 @@ body.bg-soft-light {
   text-align: center;
 }
 
+.skeleton-line,
+.skeleton-block,
+.skeleton-pill,
+.skeleton-chart,
+.skeleton-mini-chart,
+.skeleton-map,
+.skeleton-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--dm-surface-soft);
+}
+
+.skeleton-line::after,
+.skeleton-block::after,
+.skeleton-pill::after,
+.skeleton-chart::after,
+.skeleton-mini-chart::after,
+.skeleton-map::after,
+.skeleton-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent);
+  animation: skeleton-shimmer 1.25s infinite;
+}
+
+.skeleton-line {
+  width: 100%;
+  height: 0.8rem;
+  display: block;
+  border-radius: 999px;
+}
+
+.skeleton-line.short {
+  width: 62%;
+}
+
+.skeleton-line.value {
+  width: 42%;
+  height: 2.1rem;
+}
+
+.skeleton-line.number {
+  width: 4rem;
+  flex: 0 0 4rem;
+}
+
+.skeleton-pill {
+  width: 12rem;
+  height: 1.75rem;
+  display: inline-block;
+  border-radius: 999px;
+}
+
+.skeleton-pill.short {
+  width: 7rem;
+}
+
+.skeleton-kpi {
+  min-height: 10rem;
+  display: grid;
+  align-content: center;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.skeleton-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.skeleton-block {
+  height: 3rem;
+  display: block;
+  border-radius: 0.45rem;
+}
+
+.skeleton-chart,
+.skeleton-mini-chart,
+.skeleton-map {
+  min-height: 14rem;
+  margin: 0.85rem;
+  border-radius: 0.45rem;
+}
+
+.skeleton-chart {
+  min-height: 21.5rem;
+}
+
+.skeleton-mini-chart {
+  min-height: 11rem;
+}
+
+.skeleton-map {
+  height: 26rem;
+  min-height: 26rem;
+}
+
+.skeleton-list-row {
+  min-height: 3.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.72rem 0.95rem;
+  border-bottom: 1px solid var(--dm-line);
+}
+
+.skeleton-list-row > div {
+  width: min(70%, 28rem);
+  display: grid;
+  gap: 0.45rem;
+}
+
+.skeleton-table td {
+  padding: 0.72rem 0.75rem;
+}
+
+.skeleton-table-row .skeleton-line {
+  min-width: 4rem;
+}
+
+.skeleton-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--dm-line);
+  background: transparent;
+}
+
+.skeleton-card::after {
+  display: none;
+}
+
+.skeleton-mini-bar {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.55rem;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 .parsed-panel .geo-map {
   height: 27.5rem;
   min-height: 27.5rem;
@@ -2984,6 +3132,15 @@ body.modal-open {
 [data-bs-theme="dark"] .domains-table thead th {
   background-color: var(--dm-surface-soft) !important;
   color: var(--dm-muted) !important;
+}
+
+[data-bs-theme="dark"] .skeleton-line::after,
+[data-bs-theme="dark"] .skeleton-block::after,
+[data-bs-theme="dark"] .skeleton-pill::after,
+[data-bs-theme="dark"] .skeleton-chart::after,
+[data-bs-theme="dark"] .skeleton-mini-chart::after,
+[data-bs-theme="dark"] .skeleton-map::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
 }
 
 [data-bs-theme="dark"] .table-responsive {

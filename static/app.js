@@ -53,6 +53,7 @@ const dashboardFilterInput = document.getElementById("dashboard-filter-input");
 const dashboardFilterChips = document.getElementById("dashboard-filter-chips");
 
 syncThemeToggle();
+renderInitialSkeletons();
 
 themeToggle?.addEventListener("click", () => {
   const current = document.documentElement.getAttribute("data-bs-theme") || "light";
@@ -177,11 +178,7 @@ document.querySelectorAll("[data-trend-range]").forEach((button) => {
 
 dashboardFilterInput?.addEventListener("input", (event) => {
   clearTimeout(dashboardFilterTimer);
-  dashboardFilterTimer = setTimeout(() => {
-    const query = event.target.value.trim();
-    state.dashboardQuery = query.length >= 2 ? query : "";
-    renderFilteredDashboard({ includeMap: false });
-  }, 350);
+  event.stopPropagation();
 });
 
 dashboardFilterForm?.addEventListener("submit", (event) => {
@@ -424,6 +421,7 @@ document.getElementById("oidc-settings-form").addEventListener("submit", async (
 });
 
 async function load() {
+  renderInitialSkeletons();
   const [session, overview, domains, sources, actions, timeline, reports, events, geo, mailboxSettings, mailboxSchedulerStatus, oidcSettings, users] = await Promise.all([
     fetchJson("/api/auth/session"),
     fetchJson("/api/overview"),
@@ -467,6 +465,125 @@ async function load() {
   fillOidcForm(oidcSettings);
   renderUsers();
   showPageForHash(currentNavigationHash(), true);
+}
+
+function renderInitialSkeletons() {
+  renderDashboardSkeletons();
+  renderSectionSkeletons();
+}
+
+function renderDashboardSkeletons() {
+  if (dashboardFilterChips) {
+    dashboardFilterChips.innerHTML = `
+      <span class="parsed-filter-count skeleton-pill"></span>
+      <span class="skeleton-pill short"></span>
+      <span class="skeleton-pill"></span>
+    `;
+  }
+
+  setSkeletonHtml("parsed-spf-alignment", skeletonKpi());
+  setSkeletonHtml("parsed-dkim-alignment", skeletonKpi());
+  setSkeletonHtml("parsed-dmarc-passage", skeletonKpi());
+  setSkeletonHtml("trend", skeletonChart());
+  setSkeletonHtml("parsed-spf-trend", skeletonMiniChart());
+  setSkeletonHtml("parsed-dkim-trend", skeletonMiniChart());
+  setSkeletonHtml("parsed-disposition-trend", skeletonMiniChart());
+  setSkeletonHtml("parsed-reporting-orgs", skeletonList(5));
+  setSkeletonHtml("parsed-reverse-dns", skeletonTable(5, 5));
+  setSkeletonHtml("parsed-header-from", skeletonList(5));
+  setSkeletonHtml("geo-map", `<div class="skeleton-map"></div>`);
+  setSkeletonHtml("geo-list", skeletonList(5));
+  setSkeletonHtml("parsed-source-ips", skeletonTable(6, 5));
+  setSkeletonHtml("parsed-spf-details", skeletonTable(5, 4));
+  setSkeletonHtml("parsed-reverse-dns-trend", skeletonTable(5, 4));
+  setSkeletonHtml("parsed-dkim-details", skeletonTable(5, 4));
+  setSkeletonHtml("protocols", skeletonList(4));
+}
+
+function renderSectionSkeletons() {
+  setSkeletonHtml("domains-body", `
+    ${Array.from({ length: 6 }, () => `
+      <tr class="skeleton-table-row">
+        ${Array.from({ length: 6 }, () => `<td><span class="skeleton-line"></span></td>`).join("")}
+      </tr>
+    `).join("")}
+  `);
+  setSkeletonHtml("sources-list", skeletonCards(4));
+  setSkeletonHtml("actions-list", skeletonCards(4));
+  setSkeletonHtml("policy-mix", skeletonMiniBars(3));
+  setSkeletonHtml("detail-content", skeletonCards(2));
+}
+
+function setSkeletonHtml(id, html) {
+  const target = document.getElementById(id);
+  if (target) target.innerHTML = html;
+}
+
+function skeletonKpi() {
+  return `
+    <div class="skeleton-kpi">
+      <span class="skeleton-line value"></span>
+      <span class="skeleton-line"></span>
+      <div class="skeleton-kpi-grid">
+        <span class="skeleton-block"></span>
+        <span class="skeleton-block"></span>
+        <span class="skeleton-block"></span>
+      </div>
+    </div>
+  `;
+}
+
+function skeletonChart() {
+  return `<div class="skeleton-chart"><span></span><span></span><span></span><span></span></div>`;
+}
+
+function skeletonMiniChart() {
+  return `<div class="skeleton-mini-chart"><span></span><span></span><span></span></div>`;
+}
+
+function skeletonList(count) {
+  return Array.from({ length: count }, () => `
+    <article class="skeleton-list-row">
+      <div>
+        <span class="skeleton-line"></span>
+        <span class="skeleton-line short"></span>
+      </div>
+      <span class="skeleton-line number"></span>
+    </article>
+  `).join("");
+}
+
+function skeletonTable(rows, columns) {
+  return `
+    <table class="parsed-table skeleton-table">
+      <tbody>
+        ${Array.from({ length: rows }, () => `
+          <tr>
+            ${Array.from({ length: columns }, () => `<td><span class="skeleton-line"></span></td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function skeletonCards(count) {
+  return Array.from({ length: count }, () => `
+    <article class="skeleton-card">
+      <span class="skeleton-line"></span>
+      <span class="skeleton-line short"></span>
+      <span class="skeleton-line"></span>
+    </article>
+  `).join("");
+}
+
+function skeletonMiniBars(count) {
+  return Array.from({ length: count }, () => `
+    <div class="skeleton-mini-bar">
+      <span class="skeleton-line short"></span>
+      <span class="skeleton-line"></span>
+    </div>
+  `).join("");
 }
 
 async function fetchJson(url) {
@@ -862,9 +979,14 @@ function filteredDashboardEvents() {
   const events = state.events || [];
   if (!events.length) return [];
   const query = state.dashboardQuery.trim();
+  const includeFilters = state.dashboardFilters.filter((filter) => filter.mode !== "exclude");
+  const excludeFilters = state.dashboardFilters.filter((filter) => filter.mode === "exclude");
   return events.filter((event) => {
     if (query && !dashboardQueryMatches(event, query)) return false;
-    return state.dashboardFilters.every((filter) => dashboardFilterMatches(event, filter));
+    if (includeFilters.length && !includeFilters.some((filter) => dashboardFilterMatches(event, filter))) {
+      return false;
+    }
+    return excludeFilters.every((filter) => dashboardFilterMatches(event, filter));
   });
 }
 
