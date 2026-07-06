@@ -18,6 +18,7 @@ const state = {
   actions: [],
   timeline: [],
   reports: [],
+  events: [],
   geo: { points: [], unresolved_sources: 0 },
   user: null,
   users: [],
@@ -28,6 +29,8 @@ const state = {
   domainSearch: "",
   domainsPerPage: 12,
   domainSort: { key: "messages", direction: "desc" },
+  dashboardQuery: "",
+  dashboardFilters: loadDashboardFilters(),
 };
 
 let geoMapInstance = null;
@@ -44,6 +47,9 @@ const sidebarLinks = [...document.querySelectorAll(".sidebar .nav-link[href^='#'
 const themeToggle = document.getElementById("theme-toggle");
 const globalSearchInput = document.getElementById("global-search-input");
 const globalSearchResults = document.getElementById("global-search-results");
+const dashboardFilterForm = document.getElementById("dashboard-filter-form");
+const dashboardFilterInput = document.getElementById("dashboard-filter-input");
+const dashboardFilterChips = document.getElementById("dashboard-filter-chips");
 
 syncThemeToggle();
 
@@ -164,7 +170,53 @@ document.querySelectorAll("[data-trend-range]").forEach((button) => {
     state.trendRange = button.dataset.trendRange;
     renderTrendRange();
     renderTrend();
+    renderParsedmarcDashboard();
   });
+});
+
+dashboardFilterInput?.addEventListener("input", (event) => {
+  state.dashboardQuery = event.target.value.trim();
+  renderFilteredDashboard();
+});
+
+dashboardFilterForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  addDashboardFilterFromInput("include", false);
+});
+
+document.getElementById("dashboard-filter-exclude")?.addEventListener("click", () => {
+  addDashboardFilterFromInput("exclude", false);
+});
+
+document.getElementById("dashboard-filter-pin")?.addEventListener("click", () => {
+  addDashboardFilterFromInput("include", true);
+});
+
+document.getElementById("dashboard-filter-clear")?.addEventListener("click", () => {
+  state.dashboardQuery = "";
+  state.dashboardFilters = [];
+  if (dashboardFilterInput) dashboardFilterInput.value = "";
+  saveDashboardFilters();
+  renderFilteredDashboard();
+});
+
+dashboardFilterChips?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-filter-action]");
+  if (!button) return;
+  const index = Number(button.dataset.filterIndex);
+  const filter = state.dashboardFilters[index];
+  if (!filter) return;
+
+  if (button.dataset.filterAction === "remove") {
+    state.dashboardFilters.splice(index, 1);
+  } else if (button.dataset.filterAction === "pin") {
+    filter.pinned = !filter.pinned;
+  } else if (button.dataset.filterAction === "mode") {
+    filter.mode = filter.mode === "exclude" ? "include" : "exclude";
+  }
+
+  saveDashboardFilters();
+  renderFilteredDashboard();
 });
 
 document.getElementById("domain-modal-close").addEventListener("click", closeDomainModal);
@@ -366,7 +418,7 @@ document.getElementById("oidc-settings-form").addEventListener("submit", async (
 });
 
 async function load() {
-  const [session, overview, domains, sources, actions, timeline, reports, geo, mailboxSettings, mailboxSchedulerStatus, oidcSettings, users] = await Promise.all([
+  const [session, overview, domains, sources, actions, timeline, reports, events, geo, mailboxSettings, mailboxSchedulerStatus, oidcSettings, users] = await Promise.all([
     fetchJson("/api/auth/session"),
     fetchJson("/api/overview"),
     fetchJson("/api/domains"),
@@ -374,6 +426,7 @@ async function load() {
     fetchJson("/api/action-items"),
     fetchJson("/api/timeline"),
     fetchJson("/api/reports"),
+    fetchJson("/api/events"),
     fetchJson("/api/geo-sources"),
     fetchJson("/api/settings/mailbox"),
     fetchJson("/api/mailbox/scheduler/status"),
@@ -389,17 +442,16 @@ async function load() {
   state.actions = actions;
   state.timeline = timeline;
   state.reports = reports;
+  state.events = events;
   state.geo = geo;
   state.mailboxSchedulerStatus = mailboxSchedulerStatus;
   state.oidcSettings = oidcSettings;
   state.domainPage = Math.min(state.domainPage, Math.max(1, Math.ceil(state.domains.length / state.domainsPerPage)));
 
   renderProfile();
-  renderOverview();
   renderTrendRange();
-  renderTrend();
+  renderFilteredDashboard();
   renderProtocols();
-  renderGeoMap();
   renderDomains();
   renderSources();
   renderActions();
@@ -707,11 +759,407 @@ function syncThemeLogos() {
   });
 }
 
+function renderFilteredDashboard() {
+  renderDashboardFilters();
+  renderOverview();
+  renderTrend();
+  renderParsedmarcDashboard();
+  renderGeoMap();
+}
+
+function addDashboardFilterFromInput(mode, pinned) {
+  const draft = dashboardFilterInput?.value.trim() || "";
+  if (!draft) return;
+  const filter = parseDashboardFilter(draft, mode, pinned);
+  if (!filter.value) return;
+
+  const duplicate = state.dashboardFilters.some((item) =>
+    item.field === filter.field &&
+    item.value.toLowerCase() === filter.value.toLowerCase() &&
+    item.mode === filter.mode
+  );
+  if (!duplicate) state.dashboardFilters.push(filter);
+  state.dashboardQuery = "";
+  dashboardFilterInput.value = "";
+  saveDashboardFilters();
+  renderFilteredDashboard();
+}
+
+function parseDashboardFilter(raw, fallbackMode = "include", pinned = false) {
+  let value = raw.trim();
+  let mode = fallbackMode;
+  if (value.startsWith("-")) {
+    mode = "exclude";
+    value = value.slice(1).trim();
+  }
+
+  let field = "all";
+  const separatorIndex = value.search(/[:=]/);
+  if (separatorIndex > 0) {
+    const candidate = normalizeDashboardField(value.slice(0, separatorIndex));
+    if (candidate) {
+      field = candidate;
+      value = value.slice(separatorIndex + 1).trim();
+    }
+  }
+
+  value = stripFilterQuotes(value);
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    field,
+    value,
+    mode,
+    pinned,
+  };
+}
+
+function renderDashboardFilters() {
+  if (!dashboardFilterChips) return;
+  const events = filteredDashboardEvents();
+  const metrics = dashboardMetrics(events);
+  const active = state.dashboardQuery || state.dashboardFilters.length;
+  const summary = active
+    ? `${formatNumber.format(metrics.messages)} messages · ${formatNumber.format(metrics.domains)} domains`
+    : `${formatNumber.format(metrics.messages)} messages`;
+
+  dashboardFilterChips.innerHTML = `
+    <span class="parsed-filter-count">${summary}</span>
+    ${state.dashboardFilters
+      .map((filter, index) => `
+        <span class="parsed-filter-chip ${filter.mode} ${filter.pinned ? "pinned" : ""}">
+          <button type="button" data-filter-action="pin" data-filter-index="${index}" title="${filter.pinned ? "Unpin filter" : "Pin filter"}" aria-label="${filter.pinned ? "Unpin filter" : "Pin filter"}">${filter.pinned ? "Pinned" : "Pin"}</button>
+          <button type="button" data-filter-action="mode" data-filter-index="${index}" title="Toggle include or exclude" aria-label="Toggle include or exclude">${filter.mode === "exclude" ? "Exclude" : "Include"}</button>
+          <strong>${escapeHtml(filter.field === "all" ? filter.value : `${filter.field}:${filter.value}`)}</strong>
+          <button type="button" data-filter-action="remove" data-filter-index="${index}" title="Remove filter" aria-label="Remove filter">x</button>
+        </span>
+      `)
+      .join("")}
+  `;
+}
+
+function filteredDashboardEvents() {
+  const events = state.events || [];
+  if (!events.length) return [];
+  const query = state.dashboardQuery.trim();
+  return events.filter((event) => {
+    if (query && !dashboardQueryMatches(event, query)) return false;
+    return state.dashboardFilters.every((filter) => dashboardFilterMatches(event, filter));
+  });
+}
+
+function dashboardQueryMatches(event, query) {
+  const parsed = parseDashboardFilter(query, query.startsWith("-") ? "exclude" : "include", false);
+  if (parsed.field !== "all" || query.startsWith("-")) {
+    return dashboardFilterMatches(event, parsed);
+  }
+  return textIncludes(dashboardEventHaystack(event), query);
+}
+
+function dashboardFilterMatches(event, filter) {
+  const matched = dashboardFieldValues(event, filter.field).some((value) => textIncludes(value, filter.value));
+  return filter.mode === "exclude" ? !matched : matched;
+}
+
+function dashboardFieldValues(event, field) {
+  if (field === "domain" || field === "header_from") return [event.header_from, event.domain];
+  if (field === "source_ip" || field === "ip") return [event.source_ip];
+  if (field === "reverse_dns" || field === "sender") return [event.reverse_dns, event.sender];
+  if (field === "org" || field === "org_name" || field === "reporter") return [event.org_name];
+  if (field === "disposition") return [event.disposition];
+  if (field === "dkim") return [event.dkim, event.dkim_aligned > 0 ? "pass" : "fail"];
+  if (field === "spf") return [event.spf, event.spf_aligned > 0 ? "pass" : "fail"];
+  if (field === "country") return [event.country, event.country_code];
+  if (field === "asn") return [event.asn_number ? `AS${event.asn_number}` : "", event.asn_organization];
+  if (field === "report_id") return [event.report_id, event.report_uid];
+  if (field === "date") return [event.date, event.begin, event.end];
+  return dashboardEventHaystack(event);
+}
+
+function dashboardEventHaystack(event) {
+  return [
+    event.report_id,
+    event.org_name,
+    event.date,
+    event.domain,
+    event.header_from,
+    event.source_ip,
+    event.sender,
+    event.reverse_dns,
+    event.disposition,
+    event.dkim,
+    event.spf,
+    event.country,
+    event.country_code,
+    event.city,
+    event.continent,
+    event.continent_code,
+    event.asn_number ? `AS${event.asn_number}` : "",
+    event.asn_organization,
+  ];
+}
+
+function normalizeDashboardField(field) {
+  const normalized = String(field || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const aliases = {
+    from: "header_from",
+    header: "header_from",
+    source: "source_ip",
+    source_reverse_dns: "reverse_dns",
+    reverse: "reverse_dns",
+    rdns: "reverse_dns",
+    organization: "org_name",
+    reporting_org: "org_name",
+    reporter: "org_name",
+    disp: "disposition",
+  };
+  const allowed = new Set([
+    "all",
+    "domain",
+    "header_from",
+    "source_ip",
+    "ip",
+    "reverse_dns",
+    "sender",
+    "org",
+    "org_name",
+    "reporter",
+    "disposition",
+    "dkim",
+    "spf",
+    "country",
+    "asn",
+    "report_id",
+    "date",
+  ]);
+  const fieldName = aliases[normalized] || normalized;
+  return allowed.has(fieldName) ? fieldName : null;
+}
+
+function dashboardMetrics(events = filteredDashboardEvents()) {
+  if (!events.length) {
+    return {
+      reports: 0,
+      domains: 0,
+      messages: 0,
+      aligned: 0,
+      dkim_aligned: 0,
+      spf_aligned: 0,
+      rejected: 0,
+      quarantined: 0,
+      compliance_rate: 0,
+    };
+  }
+
+  const reports = new Set();
+  const domains = new Set();
+  const metrics = {
+    reports: 0,
+    domains: 0,
+    messages: 0,
+    aligned: 0,
+    dkim_aligned: 0,
+    spf_aligned: 0,
+    rejected: 0,
+    quarantined: 0,
+    compliance_rate: 0,
+  };
+
+  for (const event of events) {
+    reports.add(event.report_uid || event.report_id);
+    domains.add(event.header_from || event.domain);
+    metrics.messages += Number(event.messages || 0);
+    metrics.aligned += Number(event.aligned || 0);
+    metrics.dkim_aligned += Number(event.dkim_aligned || 0);
+    metrics.spf_aligned += Number(event.spf_aligned || 0);
+    if (event.disposition === "reject") metrics.rejected += Number(event.messages || 0);
+    if (event.disposition === "quarantine") metrics.quarantined += Number(event.messages || 0);
+  }
+
+  metrics.reports = reports.size;
+  metrics.domains = domains.size;
+  metrics.compliance_rate = metrics.messages ? (metrics.aligned / metrics.messages) * 100 : 0;
+  return metrics;
+}
+
+function dashboardScore(metrics) {
+  if (!dashboardFilteringActive() && state.overview) return state.overview.score;
+  return Math.round(metrics.compliance_rate || 0);
+}
+
+function dashboardGrade(score) {
+  if (score >= 90) return "A";
+  if (score >= 80) return "B";
+  if (score >= 70) return "C";
+  if (score >= 55) return "D";
+  return "F";
+}
+
+function dashboardTimelinePoints() {
+  const rows = new Map();
+  for (const event of filteredDashboardEvents()) {
+    const key = event.date;
+    const row = rows.get(key) || {
+      date: key,
+      messages: 0,
+      aligned: 0,
+      dkim_aligned: 0,
+      spf_aligned: 0,
+      rejected: 0,
+      quarantined: 0,
+    };
+    row.messages += Number(event.messages || 0);
+    row.aligned += Number(event.aligned || 0);
+    row.dkim_aligned += Number(event.dkim_aligned || 0);
+    row.spf_aligned += Number(event.spf_aligned || 0);
+    if (event.disposition === "reject") row.rejected += Number(event.messages || 0);
+    if (event.disposition === "quarantine") row.quarantined += Number(event.messages || 0);
+    rows.set(key, row);
+  }
+  return [...rows.values()].sort((left, right) => String(left.date).localeCompare(String(right.date)));
+}
+
+function dashboardSources() {
+  const rows = new Map();
+  for (const event of filteredDashboardEvents()) {
+    const key = event.source_ip;
+    const row = rows.get(key) || {
+      source_ip: event.source_ip,
+      sender: event.sender,
+      reverse_dns: event.reverse_dns,
+      messages: 0,
+      aligned: 0,
+      dkim_aligned: 0,
+      spf_aligned: 0,
+      rejected: 0,
+      quarantined: 0,
+      domains: new Set(),
+      country: event.country,
+      country_code: event.country_code,
+      city: event.city,
+      latitude: event.latitude,
+      longitude: event.longitude,
+      asn_number: event.asn_number,
+      asn_organization: event.asn_organization,
+    };
+    row.messages += Number(event.messages || 0);
+    row.aligned += Number(event.aligned || 0);
+    row.dkim_aligned += Number(event.dkim_aligned || 0);
+    row.spf_aligned += Number(event.spf_aligned || 0);
+    if (event.disposition === "reject") row.rejected += Number(event.messages || 0);
+    if (event.disposition === "quarantine") row.quarantined += Number(event.messages || 0);
+    if (event.header_from || event.domain) row.domains.add(event.header_from || event.domain);
+    rows.set(key, row);
+  }
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      domains: [...row.domains].sort(),
+      alignment_rate: row.messages ? (row.aligned / row.messages) * 100 : 0,
+    }))
+    .sort((left, right) => right.messages - left.messages);
+}
+
+function dashboardDomains() {
+  const rows = new Map();
+  for (const event of filteredDashboardEvents()) {
+    const key = event.header_from || event.domain || "unknown";
+    const row = rows.get(key) || {
+      domain: key,
+      messages: 0,
+      aligned: 0,
+      sources: new Set(),
+    };
+    row.messages += Number(event.messages || 0);
+    row.aligned += Number(event.aligned || 0);
+    row.sources.add(event.source_ip);
+    rows.set(key, row);
+  }
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      sources: row.sources.size,
+    }))
+    .sort((left, right) => right.messages - left.messages);
+}
+
+function dashboardReports() {
+  const rows = new Map();
+  for (const event of filteredDashboardEvents()) {
+    const key = event.report_uid || event.report_id;
+    const row = rows.get(key) || {
+      id: key,
+      org_name: event.org_name,
+      report_id: event.report_id,
+      domain: event.domain,
+      messages: 0,
+      domains: new Set(),
+    };
+    row.messages += Number(event.messages || 0);
+    row.domains.add(event.header_from || event.domain);
+    rows.set(key, row);
+  }
+  return [...rows.values()];
+}
+
+function dashboardGeoPoints() {
+  const rows = dashboardSources()
+    .filter((source) => Number.isFinite(Number(source.latitude)) && Number.isFinite(Number(source.longitude)))
+    .map((source) => ({
+      ...source,
+      provider: "filtered events",
+      risk: source.alignment_rate < 90 ? "high" : "low",
+    }));
+  if (rows.length || dashboardFilteringActive()) return rows;
+  return state.geo.points || [];
+}
+
+function dashboardFilteringActive() {
+  return Boolean(state.dashboardQuery.trim() || state.dashboardFilters.length);
+}
+
+function textIncludes(value, needle) {
+  const text = Array.isArray(value) ? value.filter(Boolean).join(" ") : String(value || "");
+  return text.toLowerCase().includes(String(needle || "").toLowerCase());
+}
+
+function stripFilterQuotes(value) {
+  const text = String(value || "").trim();
+  if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+function loadDashboardFilters() {
+  try {
+    const filters = JSON.parse(localStorage.getItem("dmarcontrol-dashboard-filters") || "[]");
+    return Array.isArray(filters)
+      ? filters
+          .filter((filter) => filter && filter.pinned && filter.value)
+          .map((filter) => ({
+            id: filter.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            field: normalizeDashboardField(filter.field) || "all",
+            value: String(filter.value),
+            mode: filter.mode === "exclude" ? "exclude" : "include",
+            pinned: true,
+          }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDashboardFilters() {
+  const pinned = state.dashboardFilters.filter((filter) => filter.pinned);
+  localStorage.setItem("dmarcontrol-dashboard-filters", JSON.stringify(pinned));
+}
+
 function renderOverview() {
-  const stats = state.overview.statistics;
-  setText("grade", state.overview.grade);
-  setText("score", `${state.overview.score}/100`);
-  setText("score-detail", scoreDetailText(state.overview.score, stats.compliance_rate));
+  const stats = dashboardMetrics();
+  const score = dashboardScore(stats);
+  setText("grade", dashboardGrade(score));
+  setText("score", `${score}/100`);
+  setText("score-detail", scoreDetailText(score, stats.compliance_rate));
   setText("metric-domains", formatNumber.format(stats.domains));
   setText("metric-reports", `${formatNumber.format(stats.reports)} reports`);
   setText("metric-messages", formatNumber.format(stats.messages));
@@ -719,8 +1167,8 @@ function renderOverview() {
   setText("metric-alignment", `${stats.compliance_rate.toFixed(1)}%`);
   setText("metric-actions", `${state.actions.length} actions`);
   const scoreRing = document.getElementById("score-ring");
-  scoreRing.style.setProperty("--score", state.overview.score);
-  scoreRing.style.setProperty("--score-color", scoreColor(state.overview.score));
+  scoreRing.style.setProperty("--score", score);
+  scoreRing.style.setProperty("--score-color", scoreColor(score));
   renderKpiVisuals();
 }
 
@@ -1091,6 +1539,328 @@ function renderTrend() {
   `;
 }
 
+function renderParsedmarcDashboard() {
+  renderParsedAlignmentKpis();
+  renderParsedMiniCharts();
+  renderParsedReportingOrganizations();
+  renderParsedReverseDns();
+  renderParsedHeaderFrom();
+  renderParsedSourceIps();
+  renderParsedAlignmentDetails();
+  renderParsedReverseDnsEvolution();
+}
+
+function renderParsedAlignmentKpis() {
+  const stats = dashboardMetrics();
+  const messages = Number(stats.messages || 0);
+  const spfRate = messages ? (Number(stats.spf_aligned || 0) / messages) * 100 : 0;
+  const dkimRate = messages ? (Number(stats.dkim_aligned || 0) / messages) * 100 : 0;
+  renderParsedKpi("parsed-spf-alignment", spfRate, Number(stats.spf_aligned || 0), messages);
+  renderParsedKpi("parsed-dkim-alignment", dkimRate, Number(stats.dkim_aligned || 0), messages);
+  renderParsedKpi("parsed-dmarc-passage", Number(stats.compliance_rate || 0), Number(stats.aligned || 0), messages);
+}
+
+function renderParsedKpi(id, rate, passed, total) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  if (!total) {
+    target.innerHTML = `<div class="parsed-empty">No results found</div>`;
+    return;
+  }
+
+  const failed = Math.max(0, total - passed);
+  target.innerHTML = `
+    <strong class="${parsedRateStatus(rate)}">${Number(rate || 0).toFixed(1)}%</strong>
+    <div class="parsed-kpi-bar" aria-hidden="true"><i style="width: ${Math.max(2, Math.min(100, Number(rate || 0)))}%"></i></div>
+    <dl>
+      <div><dt>pass</dt><dd>${formatNumber.format(passed)}</dd></div>
+      <div><dt>fail</dt><dd>${formatNumber.format(failed)}</dd></div>
+      <div><dt>total</dt><dd>${formatNumber.format(total)}</dd></div>
+    </dl>
+  `;
+}
+
+function parsedProtocolScore(name) {
+  const protocol = (state.overview?.protocols || []).find((item) => item.name === name);
+  return Number(protocol?.score || 0);
+}
+
+function parsedProtocolAligned(name) {
+  const protocol = (state.overview?.protocols || []).find((item) => item.name === name);
+  const metric = (protocol?.metrics || []).find((item) => item.label.toLowerCase().includes("aligned"));
+  const value = String(metric?.value || "0").replace(/[^\d.-]/g, "");
+  return Number(value || 0);
+}
+
+function renderParsedMiniCharts() {
+  renderParsedAlignmentChart("parsed-spf-trend", "spf_aligned", "SPF");
+  renderParsedAlignmentChart("parsed-dkim-trend", "dkim_aligned", "DKIM");
+  renderParsedDispositionChart();
+}
+
+function renderParsedAlignmentChart(id, key, label) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  const points = filteredTrendPoints();
+  if (!points.length) {
+    target.innerHTML = `<div class="parsed-empty">No results found</div>`;
+    return;
+  }
+
+  const values = points.map((point) => ({
+    date: point.date,
+    value: point.messages ? (Number(point[key] || 0) / Number(point.messages || 1)) * 100 : 0,
+    messages: point.messages,
+  }));
+  const chartPoints = miniChartPoints(values.map((point) => point.value), 100);
+
+  target.innerHTML = `
+    <svg viewBox="0 0 320 150" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(label)} alignment over time">
+      <g class="parsed-chart-grid">
+        <path d="M28 18 H306" />
+        <path d="M28 66 H306" />
+        <path d="M28 114 H306" />
+      </g>
+      <path class="parsed-mini-area" d="${miniAreaPath(chartPoints)}" />
+      <path class="parsed-mini-line" d="${linePath(chartPoints)}" />
+      ${chartPoints.map((point, index) => `<circle cx="${point.x}" cy="${point.y}" r="3"><title>${escapeHtml(shortDate(values[index].date))} · ${values[index].value.toFixed(1)}% · ${formatNumber.format(values[index].messages)} messages</title></circle>`).join("")}
+    </svg>
+    <div class="parsed-chart-foot"><span>0%</span><span>100%</span></div>
+  `;
+}
+
+function renderParsedDispositionChart() {
+  const target = document.getElementById("parsed-disposition-trend");
+  if (!target) return;
+  const points = filteredTrendPoints();
+  if (!points.length) {
+    target.innerHTML = `<div class="parsed-empty">No results found</div>`;
+    return;
+  }
+
+  const max = Math.max(...points.map((point) => Number(point.messages || 0)), 1);
+  target.innerHTML = `
+    <div class="parsed-disposition-bars">
+      ${points
+        .map((point) => {
+          const rejected = Number(point.rejected || 0);
+          const quarantined = Number(point.quarantined || 0);
+          const none = Math.max(0, Number(point.messages || 0) - rejected - quarantined);
+          const height = Math.max(5, (Number(point.messages || 0) / max) * 100);
+          return `
+            <div class="parsed-disposition-bar" style="height: ${height}%" title="${escapeHtml(shortDate(point.date))} · ${formatNumber.format(point.messages)} messages">
+              <i class="none" style="height: ${(none / Math.max(point.messages, 1)) * 100}%"></i>
+              <i class="quarantine" style="height: ${(quarantined / Math.max(point.messages, 1)) * 100}%"></i>
+              <i class="reject" style="height: ${(rejected / Math.max(point.messages, 1)) * 100}%"></i>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+    <div class="parsed-legend"><span><i class="none"></i>none</span><span><i class="quarantine"></i>quarantine</span><span><i class="reject"></i>reject</span></div>
+  `;
+}
+
+function renderParsedReportingOrganizations() {
+  const rows = aggregateBy(dashboardReports(), (report) => report.org_name || "Unknown reporter");
+  const values = [...rows.values()]
+    .sort((left, right) => right.messages - left.messages)
+    .slice(0, 12);
+  renderParsedList("parsed-reporting-orgs", values, (row) => `
+    <div>
+      <strong>${escapeHtml(row.label)}</strong>
+      <small>${formatNumber.format(row.count)} reports · ${formatNumber.format(row.domains.size)} domains</small>
+    </div>
+    <span>${formatNumber.format(row.messages)}</span>
+  `);
+}
+
+function renderParsedReverseDns() {
+  const rows = aggregateSourcesByReverseDns().slice(0, 2000);
+  renderParsedTable("parsed-reverse-dns", ["source_reverse_DNS", "IPs", "Domains", "Messages", "DMARC"], rows, (row) => [
+    `<strong>${escapeHtml(row.label)}</strong>`,
+    formatNumber.format(row.sourceCount),
+    formatNumber.format(row.domains.size),
+    formatNumber.format(row.messages),
+    `${row.alignmentRate.toFixed(1)}%`,
+  ]);
+}
+
+function renderParsedHeaderFrom() {
+  const rows = dashboardDomains()
+    .sort((left, right) => Number(right.messages || 0) - Number(left.messages || 0))
+    .slice(0, 12)
+    .map((domain) => ({
+      label: domain.domain,
+      messages: Number(domain.messages || 0),
+      detail: `${formatNumber.format(domain.sources || 0)} sources · ${domain.messages ? ((domain.aligned / domain.messages) * 100).toFixed(1) : "0.0"}% DMARC`,
+    }));
+  renderParsedList("parsed-header-from", rows, (row) => `
+    <div>
+      <strong>${escapeHtml(row.label)}</strong>
+      <small>${escapeHtml(row.detail)}</small>
+    </div>
+    <span>${formatNumber.format(row.messages)}</span>
+  `);
+}
+
+function renderParsedSourceIps() {
+  const rows = dashboardSources()
+    .sort((left, right) => Number(right.messages || 0) - Number(left.messages || 0))
+    .slice(0, 1000);
+  renderParsedTable("parsed-source-ips", ["IP address", "Reverse DNS", "Country", "Messages", "Disposition"], rows, (source) => {
+    const point = geoPointForIp(source.source_ip);
+    return [
+      `<strong>${sourceIpWithFlag(source.source_ip)}</strong>`,
+      escapeHtml(reverseDnsLabel(source)),
+      escapeHtml(point ? formatGeoLocation(point) : "Unknown"),
+      formatNumber.format(source.messages || 0),
+      `${formatNumber.format(source.rejected || 0)} rejected · ${formatNumber.format(source.quarantined || 0)} quarantined`,
+    ];
+  });
+}
+
+function renderParsedAlignmentDetails() {
+  renderParsedProtocolDetails("parsed-spf-details", "spf_aligned", "SPF");
+  renderParsedProtocolDetails("parsed-dkim-details", "dkim_aligned", "DKIM");
+}
+
+function renderParsedProtocolDetails(id, key, label) {
+  const rows = dashboardSources()
+    .map((source) => {
+      const passed = Number(source[key] || 0);
+      const messages = Number(source.messages || 0);
+      return {
+        ...source,
+        passed,
+        failed: Math.max(0, messages - passed),
+        rate: messages ? (passed / messages) * 100 : 0,
+      };
+    })
+    .sort((left, right) => left.rate - right.rate || right.messages - left.messages)
+    .slice(0, 1000);
+  renderParsedTable(id, ["Source", `${label} pass`, `${label} fail`, "Rate"], rows, (source) => [
+    `<strong>${escapeHtml(reverseDnsLabel(source))}</strong><small>${escapeHtml(source.source_ip)}</small>`,
+    formatNumber.format(source.passed),
+    formatNumber.format(source.failed),
+    `${source.rate.toFixed(1)}%`,
+  ]);
+}
+
+function renderParsedReverseDnsEvolution() {
+  const rows = aggregateSourcesByReverseDns().slice(0, 2000);
+  renderParsedTable("parsed-reverse-dns-trend", ["source_reverse_DNS", "Messages", "Aligned", "DMARC passage"], rows, (row) => [
+    `<strong>${escapeHtml(row.label)}</strong>`,
+    formatNumber.format(row.messages),
+    formatNumber.format(row.aligned),
+    `<span class="parsed-rate ${parsedRateStatus(row.alignmentRate)}">${row.alignmentRate.toFixed(1)}%</span>`,
+  ]);
+}
+
+function aggregateSourcesByReverseDns() {
+  const rows = new Map();
+  for (const source of dashboardSources()) {
+    const label = reverseDnsLabel(source);
+    const row = rows.get(label) || {
+      label,
+      sourceCount: 0,
+      messages: 0,
+      aligned: 0,
+      rejected: 0,
+      quarantined: 0,
+      domains: new Set(),
+    };
+    row.sourceCount += 1;
+    row.messages += Number(source.messages || 0);
+    row.aligned += Number(source.aligned || 0);
+    row.rejected += Number(source.rejected || 0);
+    row.quarantined += Number(source.quarantined || 0);
+    for (const domain of source.domains || []) row.domains.add(domain);
+    rows.set(label, row);
+  }
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      alignmentRate: row.messages ? (row.aligned / row.messages) * 100 : 0,
+    }))
+    .sort((left, right) => right.messages - left.messages);
+}
+
+function aggregateBy(items, keyFn) {
+  const rows = new Map();
+  for (const item of items || []) {
+    const label = keyFn(item);
+    const row = rows.get(label) || { label, count: 0, messages: 0, domains: new Set() };
+    row.count += 1;
+    row.messages += Number(item.messages || 0);
+    if (item.domains instanceof Set) {
+      for (const domain of item.domains) row.domains.add(domain);
+    }
+    if (item.domain) row.domains.add(item.domain);
+    rows.set(label, row);
+  }
+  return rows;
+}
+
+function renderParsedList(id, rows, rowTemplate) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  if (!rows.length) {
+    target.innerHTML = `<div class="parsed-empty">No results found</div>`;
+    return;
+  }
+  target.innerHTML = rows.map((row) => `<article>${rowTemplate(row)}</article>`).join("");
+}
+
+function renderParsedTable(id, columns, rows, rowCells) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  if (!rows.length) {
+    target.innerHTML = `<div class="parsed-empty">No results found</div>`;
+    return;
+  }
+  target.innerHTML = `
+    <table class="parsed-table">
+      <thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${rows
+          .map((row) => `<tr>${rowCells(row).map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function miniChartPoints(values, max) {
+  const width = 278;
+  const left = 28;
+  const top = 18;
+  const height = 96;
+  const safeMax = Math.max(max, 1);
+  const step = values.length > 1 ? width / (values.length - 1) : 0;
+  return values.map((value, index) => ({
+    x: left + step * index,
+    y: top + height - (Number(value || 0) / safeMax) * height,
+  }));
+}
+
+function miniAreaPath(points) {
+  if (!points.length) return "";
+  return `${linePath(points)} L ${points[points.length - 1].x} 130 L ${points[0].x} 130 Z`;
+}
+
+function reverseDnsLabel(source) {
+  const sender = String(source.sender || "").trim();
+  if (sender && sender !== "Unknown sender") return sender;
+  return source.source_ip || "Unknown source";
+}
+
+function parsedRateStatus(rate) {
+  if (rate >= 98) return "good";
+  if (rate >= 90) return "warn";
+  return "bad";
+}
+
 function renderTrendRange() {
   document.querySelectorAll("[data-trend-range]").forEach((button) => {
     const active = button.dataset.trendRange === state.trendRange;
@@ -1101,7 +1871,7 @@ function renderTrendRange() {
 
 function filteredTrendPoints() {
   const days = Number(state.trendRange.replace("d", "")) || 1;
-  const points = state.timeline
+  const points = dashboardTimelinePoints()
     .map((point) => ({ ...point, timestamp: Date.parse(point.date) }))
     .filter((point) => Number.isFinite(point.timestamp));
   if (!points.length) return [];
@@ -1166,7 +1936,7 @@ function renderProtocols() {
 function renderGeoMap() {
   const map = document.getElementById("geo-map");
   const list = document.getElementById("geo-list");
-  const points = state.geo.points || [];
+  const points = dashboardGeoPoints();
   const max = Math.max(...points.map((point) => point.messages), 1);
   const visible = points
     .filter((point) => Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude)))

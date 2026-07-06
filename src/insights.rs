@@ -61,6 +61,8 @@ pub struct SourceInsight {
     pub sender: String,
     pub messages: u64,
     pub aligned: u64,
+    pub dkim_aligned: u64,
+    pub spf_aligned: u64,
     pub alignment_rate: f64,
     pub rejected: u64,
     pub quarantined: u64,
@@ -82,6 +84,8 @@ pub struct TimelinePoint {
     pub date: NaiveDate,
     pub messages: u64,
     pub aligned: u64,
+    pub dkim_aligned: u64,
+    pub spf_aligned: u64,
     pub rejected: u64,
     pub quarantined: u64,
 }
@@ -112,6 +116,37 @@ pub struct GeoSources {
     pub database_loaded: bool,
     pub points: Vec<GeoSourcePoint>,
     pub unresolved_sources: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecordEvent {
+    pub report_uid: String,
+    pub report_id: String,
+    pub org_name: String,
+    pub date: NaiveDate,
+    pub begin: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub domain: String,
+    pub source_ip: String,
+    pub header_from: String,
+    pub sender: String,
+    pub reverse_dns: String,
+    pub messages: u64,
+    pub aligned: u64,
+    pub dkim_aligned: u64,
+    pub spf_aligned: u64,
+    pub dkim: String,
+    pub spf: String,
+    pub disposition: String,
+    pub country: Option<String>,
+    pub country_code: Option<String>,
+    pub city: Option<String>,
+    pub continent: Option<String>,
+    pub continent_code: Option<String>,
+    pub asn_number: Option<u64>,
+    pub asn_organization: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -257,6 +292,8 @@ pub fn source_insights(reports: &[Report]) -> Vec<SourceInsight> {
                 .or_insert_with(|| SourceAccumulator {
                     messages: 0,
                     aligned: 0,
+                    dkim_aligned: 0,
+                    spf_aligned: 0,
                     rejected: 0,
                     quarantined: 0,
                     domains: BTreeSet::new(),
@@ -266,6 +303,12 @@ pub fn source_insights(reports: &[Report]) -> Vec<SourceInsight> {
             entry.messages += record.count;
             if record.dkim_aligned || record.spf_aligned {
                 entry.aligned += record.count;
+            }
+            if record.dkim_aligned {
+                entry.dkim_aligned += record.count;
+            }
+            if record.spf_aligned {
+                entry.spf_aligned += record.count;
             }
             if record.disposition == "reject" {
                 entry.rejected += record.count;
@@ -289,6 +332,8 @@ pub fn source_insights(reports: &[Report]) -> Vec<SourceInsight> {
                 source_ip,
                 messages: row.messages,
                 aligned: row.aligned,
+                dkim_aligned: row.dkim_aligned,
+                spf_aligned: row.spf_aligned,
                 alignment_rate,
                 rejected: row.rejected,
                 quarantined: row.quarantined,
@@ -299,7 +344,7 @@ pub fn source_insights(reports: &[Report]) -> Vec<SourceInsight> {
         .collect();
 
     rows.sort_by(|left, right| right.messages.cmp(&left.messages));
-    rows.truncate(100);
+    rows.truncate(2000);
     rows
 }
 
@@ -375,6 +420,8 @@ pub fn timeline(reports: &[Report]) -> Vec<TimelinePoint> {
             date,
             messages: 0,
             aligned: 0,
+            dkim_aligned: 0,
+            spf_aligned: 0,
             rejected: 0,
             quarantined: 0,
         });
@@ -383,6 +430,12 @@ pub fn timeline(reports: &[Report]) -> Vec<TimelinePoint> {
             point.messages += record.count;
             if record.dkim_aligned || record.spf_aligned {
                 point.aligned += record.count;
+            }
+            if record.dkim_aligned {
+                point.dkim_aligned += record.count;
+            }
+            if record.spf_aligned {
+                point.spf_aligned += record.count;
             }
             if record.disposition == "reject" {
                 point.rejected += record.count;
@@ -440,6 +493,97 @@ pub fn geo_sources(reports: &[Report], geoip: Option<&GeoIpResolver>) -> GeoSour
         points,
         unresolved_sources,
     }
+}
+
+pub fn record_events(reports: &[Report], geoip: Option<&GeoIpResolver>) -> Vec<RecordEvent> {
+    let mut events = Vec::new();
+
+    for report in reports {
+        for record in &report.records {
+            let mut sender_hints = BTreeSet::new();
+            collect_sender_hints(record, &mut sender_hints);
+            let sender = sender_name(&sender_hints);
+            let location = geoip
+                .and_then(|resolver| resolver.lookup(&record.source_ip))
+                .or_else(|| estimate_location(&record.source_ip, &sender));
+            let aligned = if record.dkim_aligned || record.spf_aligned {
+                record.count
+            } else {
+                0
+            };
+
+            let (
+                country,
+                country_code,
+                city,
+                continent,
+                continent_code,
+                asn_number,
+                asn_organization,
+                latitude,
+                longitude,
+            ) = match location {
+                Some(location) => (
+                    Some(location.country),
+                    location.country_code,
+                    Some(location.region),
+                    location.continent,
+                    location.continent_code,
+                    location.asn_number,
+                    location.asn_organization,
+                    Some(location.latitude),
+                    Some(location.longitude),
+                ),
+                None => (None, None, None, None, None, None, None, None, None),
+            };
+
+            events.push(RecordEvent {
+                report_uid: report.id.clone(),
+                report_id: report.report_id.clone(),
+                org_name: report.org_name.clone(),
+                date: report.begin.date_naive(),
+                begin: report.begin,
+                end: report.end,
+                domain: report.policy.domain.clone(),
+                source_ip: record.source_ip.clone(),
+                header_from: if record.header_from.is_empty() {
+                    report.policy.domain.clone()
+                } else {
+                    record.header_from.clone()
+                },
+                reverse_dns: if sender == "Unknown sender" {
+                    record.source_ip.clone()
+                } else {
+                    sender.clone()
+                },
+                sender,
+                messages: record.count,
+                aligned,
+                dkim_aligned: if record.dkim_aligned { record.count } else { 0 },
+                spf_aligned: if record.spf_aligned { record.count } else { 0 },
+                dkim: record.dkim.clone(),
+                spf: record.spf.clone(),
+                disposition: record.disposition.clone(),
+                country,
+                country_code,
+                city,
+                continent,
+                continent_code,
+                asn_number,
+                asn_organization,
+                latitude,
+                longitude,
+            });
+        }
+    }
+
+    events.sort_by(|left, right| {
+        right
+            .date
+            .cmp(&left.date)
+            .then_with(|| right.messages.cmp(&left.messages))
+    });
+    events
 }
 
 pub fn domain_detail(
@@ -1037,6 +1181,8 @@ struct DomainAccumulator {
 struct SourceAccumulator {
     messages: u64,
     aligned: u64,
+    dkim_aligned: u64,
+    spf_aligned: u64,
     rejected: u64,
     quarantined: u64,
     domains: BTreeSet<String>,

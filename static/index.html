@@ -131,6 +131,12 @@
             <div id="global-search-results" class="global-search-results" hidden></div>
           </div>
           <div class="header-actions">
+            <div class="trend-range header-trend-range" role="group" aria-label="Timeline range">
+              <button type="button" data-trend-range="1d" aria-pressed="false">24h</button>
+              <button type="button" data-trend-range="7d" aria-pressed="false">7j</button>
+              <button type="button" data-trend-range="30d" class="active" aria-pressed="true">30j</button>
+              <button type="button" data-trend-range="365d" aria-pressed="false">1an</button>
+            </div>
             <a class="btn btn-icon btn-soft-primary" href="/api/export/reports.csv" title="Export CSV" aria-label="Export CSV">
               <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
                 <path d="M12 3v12" />
@@ -205,165 +211,140 @@
       </nav>
 
       <div class="container-fluid content-inner pb-0">
-        <section id="overview" class="row overview-row">
-          <div class="col-xl-5 col-lg-12">
-            <div class="card overview-card">
-              <div class="card-body d-flex align-items-center gap-4 flex-wrap">
-                <span class="overview-icon overview-icon-posture" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" focusable="false">
-                    <path d="M12 3l7 3v5c0 4.5-2.8 8.3-7 10-4.2-1.7-7-5.5-7-10V6l7-3z" />
-                    <path d="M9 12l2 2 4-5" />
-                  </svg>
-                </span>
-                <div class="score-ring" id="score-ring" style="--score: 0">
-                  <span id="grade">F</span>
-                  <small id="score">0</small>
-                </div>
-                <div class="flex-fill">
-                  <p class="text-uppercase text-muted fw-semibold small mb-1">Posture</p>
-                  <h3 class="mb-2">DMARC score</h3>
-                  <p id="score-detail" class="text-muted mb-0">Import aggregate reports to calculate a score.</p>
-                </div>
-              </div>
+        <section id="overview" class="parsed-dashboard">
+          <form id="dashboard-filter-form" class="parsed-filter-toolbar">
+            <label class="parsed-filter-input" for="dashboard-filter-input">
+              <svg viewBox="0 0 24 24" fill="none" focusable="false" aria-hidden="true">
+                <path d="M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15z" />
+                <path d="M16 16l5 5" />
+              </svg>
+              <input id="dashboard-filter-input" type="search" autocomplete="off" placeholder="Search or field:value" aria-label="Search or field:value">
+            </label>
+            <div class="parsed-filter-actions">
+              <button class="btn btn-sm btn-primary" type="submit">Include</button>
+              <button id="dashboard-filter-exclude" class="btn btn-sm btn-outline-danger" type="button">Exclude</button>
+              <button id="dashboard-filter-pin" class="btn btn-sm btn-outline-primary" type="button">Pin</button>
+              <button id="dashboard-filter-clear" class="btn btn-sm btn-outline-secondary" type="button">Clear</button>
             </div>
+            <div id="dashboard-filter-chips" class="parsed-filter-chips" aria-live="polite"></div>
+          </form>
+
+          <div class="parsed-summary-strip">
+            <article class="parsed-score-panel">
+              <div class="score-ring" id="score-ring" style="--score: 0">
+                <span id="grade">F</span>
+                <small id="score">0</small>
+              </div>
+              <div>
+                <span>DMARC score</span>
+                <strong id="metric-alignment">0%</strong>
+                <small id="score-detail">Import aggregate reports to calculate a score.</small>
+              </div>
+            </article>
+            <article>
+              <span>Domains</span>
+              <strong id="metric-domains">0</strong>
+              <small id="metric-reports">0 reports</small>
+            </article>
+            <article>
+              <span>Messages</span>
+              <strong id="metric-messages">0</strong>
+              <small id="metric-aligned">0 aligned</small>
+            </article>
+            <article>
+              <span>Action items</span>
+              <strong id="metric-actions">0 actions</strong>
+              <small>Policy and source remediation</small>
+            </article>
           </div>
 
-          <div class="col-xl-7 col-lg-12">
-            <div class="row">
-              <div class="col-md-4">
-                <div class="card overview-card">
-                  <div class="card-body">
-                    <span class="overview-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" focusable="false">
-                        <path d="M4 5h16v14H4z" />
-                        <path d="M8 9h8" />
-                        <path d="M8 13h5" />
-                        <path d="M8 17h3" />
-                      </svg>
-                    </span>
-                    <p class="text-muted mb-1">Domains</p>
-                    <h3 id="metric-domains" class="counter mb-1">0</h3>
-                    <small id="metric-reports" class="text-muted">0 reports</small>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-4">
-                <div class="card overview-card">
-                  <div class="card-body">
-                    <span class="overview-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" focusable="false">
-                        <path d="M4 7l8 6 8-6" />
-                        <path d="M4 7h16v10H4z" />
-                      </svg>
-                    </span>
-                    <p class="text-muted mb-1">Messages</p>
-                    <h3 id="metric-messages" class="counter mb-1">0</h3>
-                    <small id="metric-aligned" class="text-muted">0 aligned</small>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-4">
-                <div class="card overview-card">
-                  <div class="card-body">
-                    <span class="overview-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" focusable="false">
-                        <path d="M4 19V5" />
-                        <path d="M4 19h16" />
-                        <path d="M7 15l4-4 3 3 5-7" />
-                      </svg>
-                    </span>
-                    <p class="text-muted mb-1">Alignment</p>
-                    <h3 id="metric-alignment" class="counter mb-1">0%</h3>
-                    <small id="metric-actions" class="text-muted">0 actions</small>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div class="parsed-panel-grid parsed-kpi-grid">
+            <article class="parsed-panel">
+              <header><h2>SPF Alignment</h2></header>
+              <div id="parsed-spf-alignment" class="parsed-kpi"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>DKIM Alignment</h2></header>
+              <div id="parsed-dkim-alignment" class="parsed-kpi"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>DMARC Passage</h2></header>
+              <div id="parsed-dmarc-passage" class="parsed-kpi"></div>
+            </article>
           </div>
-        </section>
 
-        <section class="row kpi-visual-row">
-          <div class="col-xl-4">
-            <div class="card kpi-visual-card">
-              <div class="card-header split-card-header">
-                <div class="header-title">
-                  <h4 class="card-title mb-1">Policy posture</h4>
-                </div>
-                <p class="mb-0 text-muted">Domains by enforcement mode</p>
-              </div>
-              <div id="policy-posture-visual" class="card-body kpi-visual-body"></div>
-            </div>
+          <div class="parsed-panel-grid parsed-trend-grid">
+            <article class="parsed-panel parsed-panel-wide">
+              <header><h2>DMARC Passage Over Time</h2></header>
+              <div id="trend" class="trend parsed-chart"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>SPF Alignment Over Time</h2></header>
+              <div id="parsed-spf-trend" class="parsed-mini-chart"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>DKIM Alignment Over Time</h2></header>
+              <div id="parsed-dkim-trend" class="parsed-mini-chart"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>Message Disposition Over Time</h2></header>
+              <div id="parsed-disposition-trend" class="parsed-mini-chart"></div>
+            </article>
           </div>
-          <div class="col-xl-8">
-            <div class="card kpi-visual-card">
-              <div class="card-header split-card-header">
-                <div class="header-title">
-                  <h4 class="card-title mb-1">Score distribution</h4>
-                </div>
-                <p class="mb-0 text-muted">Domains grouped by score range</p>
-              </div>
-              <div id="score-histogram-visual" class="card-body kpi-visual-body"></div>
-            </div>
-          </div>
-        </section>
 
-        <section class="row equal-row">
-          <div class="col-xl-8">
-            <div class="card equal-card">
-              <div class="card-header split-card-header">
-                <div class="header-title">
-                  <h4 class="card-title mb-1">Compliance trend</h4>
-                </div>
-                <p class="mb-0 text-muted">Aggregate volume and aligned traffic over time</p>
-                <div class="trend-range" role="group" aria-label="Timeline range">
-                  <button type="button" data-trend-range="1d" aria-pressed="false">24h</button>
-                  <button type="button" data-trend-range="7d" aria-pressed="false">7j</button>
-                  <button type="button" data-trend-range="30d" class="active" aria-pressed="true">30j</button>
-                  <button type="button" data-trend-range="365d" aria-pressed="false">1an</button>
-                </div>
-              </div>
-              <div class="card-body trend-card-body">
-                <div id="trend" class="trend"></div>
-              </div>
-            </div>
+          <div class="parsed-panel-grid parsed-analysis-grid">
+            <article class="parsed-panel">
+              <header><h2>Reporting Organizations</h2></header>
+              <div id="parsed-reporting-orgs" class="parsed-list"></div>
+            </article>
+            <article class="parsed-panel parsed-panel-wide">
+              <header><h2>Top 2000 Message Sources by Reverse DNS</h2></header>
+              <div id="parsed-reverse-dns" class="parsed-table-wrap"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>Message Volume by Header From</h2></header>
+              <div id="parsed-header-from" class="parsed-list"></div>
+            </article>
           </div>
-          <div class="col-xl-4">
-            <div class="card equal-card">
-              <div class="card-header split-card-header">
-                <div class="header-title">
-                  <h4 class="card-title mb-1">Protocol coverage</h4>
-                </div>
-                <p class="mb-0 text-muted">Derived from aggregate reports</p>
-              </div>
-              <div id="protocols" class="list-group list-group-flush"></div>
-            </div>
-          </div>
-        </section>
 
-        <section class="row equal-row">
-          <div class="col-xl-8">
-            <div class="card equal-card">
-              <div class="card-header split-card-header">
-                <div class="header-title">
-                  <h4 class="card-title mb-1">Source geography</h4>
-                </div>
-                <p class="mb-0 text-muted">Country-level source IP intelligence from IP66</p>
-              </div>
-              <div class="card-body">
-                <div id="geo-map" class="geo-map" aria-label="Source geography map"></div>
-              </div>
-            </div>
-          </div>
-          <div class="col-xl-4">
-            <div class="card equal-card">
-              <div class="card-header split-card-header">
-                <div class="header-title">
-                  <h4 class="card-title mb-1">Top locations</h4>
-                </div>
-                <p class="mb-0 text-muted">Grouped by IP66 country geolocation</p>
-              </div>
+          <div class="parsed-panel-grid parsed-map-grid">
+            <article class="parsed-panel parsed-panel-map">
+              <header>
+                <h2>Map of Message Source Countries</h2>
+                <p>Use control + scroll to zoom the map. Use shift + click and drag to zoom to a bounding box.</p>
+              </header>
+              <div id="geo-map" class="geo-map" aria-label="Map of message source countries"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>Message Source Countries</h2></header>
               <div id="geo-list" class="list-group list-group-flush"></div>
-            </div>
+            </article>
+          </div>
+
+          <div class="parsed-panel-grid parsed-table-grid">
+            <article class="parsed-panel parsed-panel-wide">
+              <header><h2>Top 1000 Message Source IP Addresses</h2></header>
+              <div id="parsed-source-ips" class="parsed-table-wrap"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>SPF Alignment Details</h2></header>
+              <div id="parsed-spf-details" class="parsed-table-wrap"></div>
+            </article>
+            <article class="parsed-panel parsed-panel-wide">
+              <header><h2>Evolution DMARC par source_reverse_DNS</h2></header>
+              <div id="parsed-reverse-dns-trend" class="parsed-table-wrap"></div>
+            </article>
+            <article class="parsed-panel">
+              <header><h2>DKIM Alignment Details</h2></header>
+              <div id="parsed-dkim-details" class="parsed-table-wrap"></div>
+            </article>
+          </div>
+
+          <div class="parsed-panel-grid parsed-protocol-grid">
+            <article class="parsed-panel">
+              <header><h2>Protocol Coverage</h2></header>
+              <div id="protocols" class="list-group list-group-flush"></div>
+            </article>
           </div>
         </section>
 

@@ -95,6 +95,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/domains/:domain", get(domain_detail))
         .route("/api/action-items", get(action_items))
         .route("/api/timeline", get(timeline))
+        .route("/api/events", get(events))
         .route("/api/geo-sources", get(geo_sources))
         .route("/api/search", get(search))
         .route("/api/reports", get(reports))
@@ -749,6 +750,11 @@ async fn action_items(State(state): State<Arc<AppState>>) -> Json<Vec<insights::
 async fn timeline(State(state): State<Arc<AppState>>) -> Json<Vec<insights::TimelinePoint>> {
     let reports = state.store.list().await;
     Json(insights::timeline(&reports))
+}
+
+async fn events(State(state): State<Arc<AppState>>) -> Json<Vec<insights::RecordEvent>> {
+    let reports = state.store.list().await;
+    Json(insights::record_events(&reports, state.geoip.as_deref()))
 }
 
 async fn geo_sources(State(state): State<Arc<AppState>>) -> Json<insights::GeoSources> {
