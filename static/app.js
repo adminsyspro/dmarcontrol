@@ -40,6 +40,7 @@ let appTooltip = null;
 let manualSidebarActiveUntil = 0;
 let currentPage = "dashboard";
 let searchTimer = null;
+let dashboardFilterTimer = null;
 let searchAbortController = null;
 let searchResults = [];
 
@@ -175,8 +176,12 @@ document.querySelectorAll("[data-trend-range]").forEach((button) => {
 });
 
 dashboardFilterInput?.addEventListener("input", (event) => {
-  state.dashboardQuery = event.target.value.trim();
-  renderFilteredDashboard();
+  clearTimeout(dashboardFilterTimer);
+  dashboardFilterTimer = setTimeout(() => {
+    const query = event.target.value.trim();
+    state.dashboardQuery = query.length >= 2 ? query : "";
+    renderFilteredDashboard({ includeMap: false });
+  }, 350);
 });
 
 dashboardFilterForm?.addEventListener("submit", (event) => {
@@ -193,6 +198,7 @@ document.getElementById("dashboard-filter-pin")?.addEventListener("click", () =>
 });
 
 document.getElementById("dashboard-filter-clear")?.addEventListener("click", () => {
+  clearTimeout(dashboardFilterTimer);
   state.dashboardQuery = "";
   state.dashboardFilters = [];
   if (dashboardFilterInput) dashboardFilterInput.value = "";
@@ -759,30 +765,45 @@ function syncThemeLogos() {
   });
 }
 
-function renderFilteredDashboard() {
+function renderFilteredDashboard({ includeMap = true } = {}) {
   renderDashboardFilters();
   renderOverview();
   renderTrend();
   renderParsedmarcDashboard();
-  renderGeoMap();
+  if (includeMap) renderGeoMap();
 }
 
 function addDashboardFilterFromInput(mode, pinned) {
+  clearTimeout(dashboardFilterTimer);
+  state.dashboardQuery = dashboardFilterInput?.value.trim() || "";
   const draft = dashboardFilterInput?.value.trim() || "";
   if (!draft) return;
   const filter = parseDashboardFilter(draft, mode, pinned);
-  if (!filter.value) return;
+  addDashboardFilter(filter);
+  state.dashboardQuery = "";
+  dashboardFilterInput.value = "";
+}
 
+function addDashboardFilter(filter) {
+  if (!filter?.value) return;
   const duplicate = state.dashboardFilters.some((item) =>
     item.field === filter.field &&
     item.value.toLowerCase() === filter.value.toLowerCase() &&
     item.mode === filter.mode
   );
   if (!duplicate) state.dashboardFilters.push(filter);
-  state.dashboardQuery = "";
-  dashboardFilterInput.value = "";
   saveDashboardFilters();
   renderFilteredDashboard();
+}
+
+function addDashboardFilterValue(field, value, mode = "include", pinned = false) {
+  addDashboardFilter({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    field: normalizeDashboardField(field) || "all",
+    value: String(value || "").trim(),
+    mode,
+    pinned,
+  });
 }
 
 function parseDashboardFilter(raw, fallbackMode = "include", pinned = false) {
@@ -1683,7 +1704,7 @@ function renderParsedReverseDns() {
     formatNumber.format(row.domains.size),
     formatNumber.format(row.messages),
     `${row.alignmentRate.toFixed(1)}%`,
-  ]);
+  ], (row) => ({ field: "reverse_dns", value: row.label }));
 }
 
 function renderParsedHeaderFrom() {
@@ -1717,7 +1738,7 @@ function renderParsedSourceIps() {
       formatNumber.format(source.messages || 0),
       `${formatNumber.format(source.rejected || 0)} rejected · ${formatNumber.format(source.quarantined || 0)} quarantined`,
     ];
-  });
+  }, (source) => ({ field: "source_ip", value: source.source_ip }));
 }
 
 function renderParsedAlignmentDetails() {
@@ -1744,7 +1765,7 @@ function renderParsedProtocolDetails(id, key, label) {
     formatNumber.format(source.passed),
     formatNumber.format(source.failed),
     `${source.rate.toFixed(1)}%`,
-  ]);
+  ], (source) => ({ field: "source_ip", value: source.source_ip }));
 }
 
 function renderParsedReverseDnsEvolution() {
@@ -1754,7 +1775,7 @@ function renderParsedReverseDnsEvolution() {
     formatNumber.format(row.messages),
     formatNumber.format(row.aligned),
     `<span class="parsed-rate ${parsedRateStatus(row.alignmentRate)}">${row.alignmentRate.toFixed(1)}%</span>`,
-  ]);
+  ], (row) => ({ field: "reverse_dns", value: row.label }));
 }
 
 function aggregateSourcesByReverseDns() {
@@ -1812,23 +1833,44 @@ function renderParsedList(id, rows, rowTemplate) {
   target.innerHTML = rows.map((row) => `<article>${rowTemplate(row)}</article>`).join("");
 }
 
-function renderParsedTable(id, columns, rows, rowCells) {
+function renderParsedTable(id, columns, rows, rowCells, rowFilter = null) {
   const target = document.getElementById(id);
   if (!target) return;
   if (!rows.length) {
     target.innerHTML = `<div class="parsed-empty">No results found</div>`;
     return;
   }
+  const filters = rowFilter ? rows.map((row) => rowFilter(row)) : [];
   target.innerHTML = `
     <table class="parsed-table">
       <thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr></thead>
       <tbody>
         ${rows
-          .map((row) => `<tr>${rowCells(row).map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+          .map((row, index) => {
+            const filter = filters[index];
+            const clickable = filter?.value ? ` class="parsed-clickable-row" tabindex="0" role="button" data-row-filter-index="${index}" aria-label="Filter by ${escapeHtml(filter.field)} ${escapeHtml(filter.value)}"` : "";
+            return `<tr${clickable}>${rowCells(row).map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
+          })
           .join("")}
       </tbody>
     </table>
   `;
+
+  if (!rowFilter) return;
+  target.querySelectorAll("[data-row-filter-index]").forEach((row) => {
+    const applyRowFilter = () => {
+      const filter = filters[Number(row.dataset.rowFilterIndex)];
+      if (!filter?.value) return;
+      addDashboardFilterValue(filter.field, filter.value, filter.mode || "include", Boolean(filter.pinned));
+    };
+    row.addEventListener("click", applyRowFilter);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        applyRowFilter();
+      }
+    });
+  });
 }
 
 function miniChartPoints(values, max) {

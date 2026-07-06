@@ -1167,6 +1167,23 @@ body.bg-soft-light {
   font-weight: 600;
 }
 
+.parsed-clickable-row {
+  cursor: pointer;
+}
+
+.parsed-clickable-row:hover td,
+.parsed-clickable-row:focus td {
+  background: rgba(58, 87, 232, 0.08);
+}
+
+.parsed-clickable-row:focus {
+  outline: none;
+}
+
+.parsed-clickable-row:focus td:first-child {
+  box-shadow: inset 3px 0 0 var(--dm-accent);
+}
+
 .parsed-table strong {
   display: block;
   color: var(--dm-text);
@@ -2956,6 +2973,11 @@ body.modal-open {
 [data-bs-theme="dark"] .domain-source-table tbody tr:hover > * {
   background-color: rgba(124, 150, 255, 0.1) !important;
   color: var(--dm-text) !important;
+}
+
+[data-bs-theme="dark"] .parsed-clickable-row:hover td,
+[data-bs-theme="dark"] .parsed-clickable-row:focus td {
+  background: rgba(124, 150, 255, 0.1);
 }
 
 [data-bs-theme="dark"] .table thead th,
