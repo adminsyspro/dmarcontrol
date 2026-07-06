@@ -1032,153 +1032,31 @@ body.bg-soft-light {
 
 .parsed-chart,
 .parsed-mini-chart {
+  position: relative;
   width: 100%;
   min-height: 14rem;
 }
 
-.parsed-mini-chart {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+.parsed-chart {
   padding: 0.75rem 0.85rem 0.65rem;
-  gap: 0.15rem;
 }
 
+.parsed-mini-chart {
+  display: flex;
+  padding: 0.75rem 0.85rem 0.65rem;
+}
+
+.dashboard-chart-canvas,
 .parsed-mini-chart svg {
-  width: 100%;
+  width: 100% !important;
   height: 100%;
   min-height: 0;
   display: block;
 }
 
-.parsed-chart-grid path {
-  stroke: var(--dm-line);
-  stroke-width: 1;
-}
-
-.parsed-chart-axis text {
-  fill: var(--dm-muted);
-  font-size: 8px;
-  font-weight: 700;
-  dominant-baseline: middle;
-  text-anchor: end;
-}
-
-.parsed-mini-area {
-  fill: color-mix(in srgb, var(--dm-accent) 14%, transparent);
-}
-
-.parsed-mini-line {
-  fill: none;
-  stroke: var(--dm-accent);
-  stroke-width: 3.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.parsed-mini-point {
-  fill: var(--dm-surface);
-  stroke: var(--dm-accent);
-  stroke-width: 2.2;
-  pointer-events: none;
-}
-
-.parsed-mini-hitpoint {
-  fill: transparent;
-  stroke: transparent;
-  cursor: crosshair;
-}
-
-.parsed-mini-hitpoint:hover + .parsed-mini-point,
-.parsed-mini-hitpoint:focus + .parsed-mini-point {
-  fill: var(--dm-accent);
-  stroke: var(--dm-surface);
-  stroke-width: 2.8;
-}
-
-.parsed-chart-foot,
-.parsed-legend {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  color: var(--dm-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-}
-
-.parsed-chart-foot strong {
-  color: var(--dm-accent);
-  font-size: 0.78rem;
-  font-weight: 850;
-}
-
-.parsed-disposition-bars {
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  align-items: end;
-  gap: 0.24rem;
-  padding-top: 0.25rem;
-}
-
-.parsed-disposition-bar {
-  flex: 1 1 0;
-  min-width: 0.35rem;
-  display: flex;
-  flex-direction: column-reverse;
-  overflow: hidden;
-  border-radius: 0.25rem 0.25rem 0 0;
-  background: var(--dm-surface-soft);
-  cursor: crosshair;
-  outline: none;
-  transition:
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
-}
-
-.parsed-disposition-bar:hover,
-.parsed-disposition-bar:focus {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dm-accent) 24%, transparent);
-  transform: translateY(-2px);
-}
-
-.parsed-disposition-bar i {
-  display: block;
-  width: 100%;
-}
-
-.parsed-disposition-bar .none,
-.parsed-legend .none {
-  background: var(--dm-success);
-}
-
-.parsed-disposition-bar .quarantine,
-.parsed-legend .quarantine {
-  background: var(--dm-warning);
-}
-
-.parsed-disposition-bar .reject,
-.parsed-legend .reject {
-  background: var(--dm-danger);
-}
-
-.parsed-legend {
-  justify-content: start;
-  flex-wrap: wrap;
-  padding-top: 0.65rem;
-}
-
-.parsed-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.parsed-legend i {
-  width: 0.65rem;
-  height: 0.65rem;
-  display: inline-block;
-  border-radius: 50%;
+.dashboard-chart-canvas {
+  flex: 1 1 auto;
+  height: 100% !important;
 }
 
 .parsed-list {
@@ -1527,130 +1405,6 @@ body.bg-soft-light {
   font-weight: 600;
   line-height: 1.35;
   overflow-wrap: anywhere;
-}
-
-.trend-graph {
-  position: relative;
-  width: 100%;
-  min-height: 0;
-  flex: 1;
-  display: flex;
-}
-
-.trend-graph svg {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  display: block;
-  overflow: hidden;
-  padding-bottom: 0.25rem;
-}
-
-.trend-grid path {
-  stroke: #e8edf4;
-  stroke-width: 1;
-}
-
-.trend-area {
-  fill: rgba(58, 87, 232, 0.11);
-}
-
-.trend-line {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.trend-line-total {
-  stroke: var(--dm-accent);
-  stroke-width: 3.2;
-}
-
-.trend-line-aligned {
-  stroke: var(--dm-success);
-  stroke-width: 2.4;
-  stroke-dasharray: 5 6;
-}
-
-.trend-point {
-  fill: #fff;
-  stroke: var(--dm-accent);
-  stroke-width: 2;
-  pointer-events: none;
-}
-
-.trend-point-aligned {
-  stroke: var(--dm-success);
-}
-
-.trend-hitpoint {
-  fill: transparent;
-  stroke: transparent;
-  cursor: crosshair;
-  outline: none;
-}
-
-.trend-hitpoint:hover + .trend-point,
-.trend-hitpoint:focus + .trend-point {
-  fill: var(--dm-accent);
-  stroke: #fff;
-  stroke-width: 2.7;
-}
-
-.trend-hitpoint-aligned:hover + .trend-point-aligned,
-.trend-hitpoint-aligned:focus + .trend-point-aligned {
-  fill: var(--dm-success);
-}
-
-.trend-label {
-  fill: #6c757d;
-  font-size: 5px;
-  dominant-baseline: middle;
-  text-anchor: middle;
-}
-
-.trend-label-start {
-  text-anchor: start;
-}
-
-.trend-label-end {
-  text-anchor: end;
-}
-
-.trend-legend {
-  position: absolute;
-  top: 1rem;
-  right: 1.25rem;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 1rem;
-  padding: 0.4rem 0.55rem;
-  border: 1px solid rgba(233, 236, 239, 0.92);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(8px);
-  color: #6c757d;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.trend-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.trend-legend i {
-  width: 0.8rem;
-  height: 0.2rem;
-  border-radius: 999px;
-  background: var(--dm-accent);
-}
-
-.trend-legend i.aligned {
-  background: var(--dm-success);
 }
 
 .equal-row {
@@ -3129,7 +2883,6 @@ body.modal-open {
 [data-bs-theme="dark"] td small,
 [data-bs-theme="dark"] .protocol-content small,
 [data-bs-theme="dark"] .protocol-mini,
-[data-bs-theme="dark"] .trend-label,
 [data-bs-theme="dark"] .source-meta,
 [data-bs-theme="dark"] .action p,
 [data-bs-theme="dark"] .action em,
@@ -3309,25 +3062,6 @@ body.modal-open {
 [data-bs-theme="dark"] .trend-range {
   border-color: var(--dm-line);
   background: var(--dm-surface-soft);
-}
-
-[data-bs-theme="dark"] .trend-grid path {
-  stroke: #2b3546;
-}
-
-[data-bs-theme="dark"] .trend-point {
-  fill: var(--dm-surface);
-}
-
-[data-bs-theme="dark"] .trend-hitpoint:hover + .trend-point,
-[data-bs-theme="dark"] .trend-hitpoint:focus + .trend-point {
-  stroke: var(--dm-surface);
-}
-
-[data-bs-theme="dark"] .trend-legend {
-  border-color: var(--dm-line);
-  background: rgba(23, 29, 40, 0.9);
-  color: var(--dm-muted);
 }
 
 [data-bs-theme="dark"] .protocol-item:hover,
@@ -3610,14 +3344,6 @@ body.modal-open {
 
   .parsed-filter-chip strong {
     max-width: 52vw;
-  }
-
-  .trend {
-    overflow-x: auto;
-  }
-
-  .trend-graph {
-    min-width: 620px;
   }
 
   .domains-footer,

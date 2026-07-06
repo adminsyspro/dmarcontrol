@@ -30,6 +30,8 @@ const HOPE_UI_CSS: &str = include_str!("../static/vendor/hope-ui/hope-ui.min.css
 const HOPE_UI_JS: &str = include_str!("../static/vendor/hope-ui/hope-ui.js");
 const LEAFLET_CSS: &str = include_str!("../static/vendor/leaflet/leaflet.css");
 const LEAFLET_JS: &str = include_str!("../static/vendor/leaflet/leaflet.js");
+const CHART_JS: &str = include_str!("../static/vendor/chartjs/chart.umd.min.js");
+const CHART_JS_MAP: &str = include_str!("../static/vendor/chartjs/chart.umd.js.map");
 const LEAFLET_LAYERS_PNG: &[u8] = include_bytes!("../static/vendor/leaflet/images/layers.png");
 const LEAFLET_LAYERS_2X_PNG: &[u8] =
     include_bytes!("../static/vendor/leaflet/images/layers-2x.png");
@@ -58,6 +60,14 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/vendor/hope-ui/hope-ui.js", get(hope_ui_js))
         .route("/assets/vendor/leaflet/leaflet.css", get(leaflet_css))
         .route("/assets/vendor/leaflet/leaflet.js", get(leaflet_js))
+        .route(
+            "/assets/vendor/chartjs/chart.umd.min.js",
+            get(chart_js),
+        )
+        .route(
+            "/assets/vendor/chartjs/chart.umd.js.map",
+            get(chart_js_map),
+        )
         .route(
             "/assets/vendor/leaflet/images/layers.png",
             get(leaflet_layers_png),
@@ -151,6 +161,14 @@ async fn leaflet_css() -> Response {
 
 async fn leaflet_js() -> Response {
     static_response(LEAFLET_JS, "text/javascript; charset=utf-8")
+}
+
+async fn chart_js() -> Response {
+    static_response(CHART_JS, "text/javascript; charset=utf-8")
+}
+
+async fn chart_js_map() -> Response {
+    static_response(CHART_JS_MAP, "application/json; charset=utf-8")
 }
 
 async fn leaflet_layers_png() -> Response {

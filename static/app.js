@@ -43,6 +43,7 @@ let searchTimer = null;
 let dashboardFilterTimer = null;
 let searchAbortController = null;
 let searchResults = [];
+const dashboardCharts = new Map();
 
 const sidebarLinks = [...document.querySelectorAll(".sidebar .nav-link[href^='#']")];
 const themeToggle = document.getElementById("theme-toggle");
@@ -862,6 +863,7 @@ function applyTheme(theme) {
   localStorage.setItem("dmarcontrol-theme", theme);
   syncThemeToggle();
   syncThemeLogos();
+  if (state.overview) renderFilteredDashboard({ includeMap: false });
 }
 
 function syncThemeToggle() {
@@ -1623,6 +1625,7 @@ function scoreColor(score) {
 
 function renderTrend() {
   const trend = document.getElementById("trend");
+  destroyDashboardChart("trend");
   trend.innerHTML = "";
   if (!state.timeline.length) {
     trend.classList.add("trend-empty-state");
@@ -1638,65 +1641,48 @@ function renderTrend() {
     return;
   }
 
-  const max = Math.max(...points.map((point) => point.messages), 1);
-  const messagePoints = trendPoints(points, max, "messages");
-  const alignedPoints = trendPoints(points, max, "aligned");
-  const lastMessagePoint = messagePoints[messagePoints.length - 1];
-  const areaPath = `${linePath(messagePoints)} L ${lastMessagePoint.x} 220 L ${messagePoints[0].x} 220 Z`;
-  const labels = trendLabels(points);
-
-  trend.innerHTML = `
-    <div class="trend-graph">
-      <svg viewBox="0 0 640 260" preserveAspectRatio="none" role="img" aria-label="Compliance trend chart">
-        <g class="trend-grid">
-          <path d="M34 22 H624" />
-          <path d="M34 88 H624" />
-          <path d="M34 154 H624" />
-          <path d="M34 220 H624" />
-        </g>
-        <path class="trend-area" d="${areaPath}" />
-        <path class="trend-line trend-line-total" d="${linePath(messagePoints)}" />
-        <path class="trend-line trend-line-aligned" d="${linePath(alignedPoints)}" />
-        ${messagePoints
-          .map((point, index) => {
-            const source = points[index];
-            const aligned = Number(source.aligned || 0);
-            const messages = Number(source.messages || 0);
-            const rate = messages ? (aligned / messages) * 100 : 0;
-            const detail = `Messages · ${shortDate(source.date)} · ${formatNumber.format(messages)} total · ${formatNumber.format(aligned)} aligned · ${rate.toFixed(1)}% pass`;
-            return `
-              <circle class="trend-hitpoint" cx="${point.x}" cy="${point.y}" r="10" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}"></circle>
-              <circle class="trend-point trend-point-total" cx="${point.x}" cy="${point.y}" r="3.7" aria-hidden="true"></circle>
-            `;
-          })
-          .join("")}
-        ${alignedPoints
-          .map((point, index) => {
-            const source = points[index];
-            const aligned = Number(source.aligned || 0);
-            const messages = Number(source.messages || 0);
-            const rate = messages ? (aligned / messages) * 100 : 0;
-            const detail = `Aligned · ${shortDate(source.date)} · ${formatNumber.format(aligned)} aligned · ${formatNumber.format(messages)} total · ${rate.toFixed(1)}% pass`;
-            return `
-              <circle class="trend-hitpoint trend-hitpoint-aligned" cx="${point.x}" cy="${point.y}" r="10" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}"></circle>
-              <circle class="trend-point trend-point-aligned" cx="${point.x}" cy="${point.y}" r="3.4" aria-hidden="true"></circle>
-            `;
-          })
-          .join("")}
-        ${labels
-          .map((point) => {
-            const index = points.indexOf(point);
-            const edgeClass = index === 0 ? " trend-label-start" : index === points.length - 1 ? " trend-label-end" : "";
-            return `<text class="trend-label${edgeClass}" x="${messagePoints[index].x}" y="244">${escapeHtml(shortDate(point.date))}</text>`;
-          })
-          .join("")}
-      </svg>
-      <div class="trend-legend">
-        <span><i class="total"></i>Messages</span>
-        <span><i class="aligned"></i>Aligned</span>
-      </div>
-    </div>
-  `;
+  const colors = chartTheme();
+  createDashboardChart("trend", "line", {
+    data: {
+      labels: points.map((point) => shortDate(point.date)),
+      datasets: [
+        {
+          label: "Messages",
+          data: points.map((point) => Number(point.messages || 0)),
+          borderColor: colors.accent,
+          backgroundColor: alphaColor(colors.accent, 0.12),
+          borderWidth: 2.5,
+          fill: true,
+          tension: 0.28,
+          pointRadius: 2.8,
+          pointHoverRadius: 5,
+        },
+        {
+          label: "Aligned",
+          data: points.map((point) => Number(point.aligned || 0)),
+          borderColor: colors.success,
+          backgroundColor: alphaColor(colors.success, 0.12),
+          borderWidth: 2.2,
+          borderDash: [5, 5],
+          fill: false,
+          tension: 0.28,
+          pointRadius: 2.6,
+          pointHoverRadius: 5,
+        },
+      ],
+    },
+    options: chartBaseOptions({
+      colors,
+      yTitle: "Messages",
+      tooltipAfterBody: (items) => {
+        const point = points[items[0]?.dataIndex ?? 0];
+        const messages = Number(point?.messages || 0);
+        const aligned = Number(point?.aligned || 0);
+        const rate = messages ? (aligned / messages) * 100 : 0;
+        return [`DMARC pass: ${rate.toFixed(1)}%`];
+      },
+    }),
+  });
 }
 
 function renderParsedmarcDashboard() {
@@ -1766,6 +1752,7 @@ function renderParsedMiniCharts() {
 function renderParsedAlignmentChart(id, key, label) {
   const target = document.getElementById(id);
   if (!target) return;
+  destroyDashboardChart(id);
   const points = filteredTrendPoints();
   if (!points.length) {
     target.innerHTML = `<div class="parsed-empty">No results found</div>`;
@@ -1776,71 +1763,98 @@ function renderParsedAlignmentChart(id, key, label) {
     date: point.date,
     value: point.messages ? (Number(point[key] || 0) / Number(point.messages || 1)) * 100 : 0,
     messages: point.messages,
+    aligned: Number(point[key] || 0),
   }));
-  const chartPoints = miniChartPoints(values.map((point) => point.value), 100);
-  const areaPath = miniAreaPath(chartPoints);
-  const line = linePath(chartPoints);
 
-  target.innerHTML = `
-    <svg viewBox="0 0 320 150" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(label)} alignment over time">
-      <g class="parsed-chart-grid">
-        <path d="M28 18 H306" />
-        <path d="M28 66 H306" />
-        <path d="M28 114 H306" />
-      </g>
-      <g class="parsed-chart-axis">
-        <text x="10" y="22">100</text>
-        <text x="16" y="118">0</text>
-      </g>
-      <path class="parsed-mini-area" d="${areaPath}" />
-      <path class="parsed-mini-line" d="${line}" />
-      ${chartPoints.map((point, index) => {
-        const detail = `${label} · ${shortDate(values[index].date)} · ${values[index].value.toFixed(1)}% · ${formatNumber.format(values[index].messages)} messages`;
-        return `
-          <circle class="parsed-mini-hitpoint" cx="${point.x}" cy="${point.y}" r="9" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}"></circle>
-          <circle class="parsed-mini-point" cx="${point.x}" cy="${point.y}" r="3.8" aria-hidden="true"></circle>
-        `;
-      }).join("")}
-    </svg>
-    <div class="parsed-chart-foot">
-      <span>${escapeHtml(shortDate(values[0].date))}</span>
-      <strong>${values[values.length - 1].value.toFixed(1)}%</strong>
-      <span>${escapeHtml(shortDate(values[values.length - 1].date))}</span>
-    </div>
-  `;
+  const colors = chartTheme();
+  createDashboardChart(id, "line", {
+    data: {
+      labels: values.map((point) => shortDate(point.date)),
+      datasets: [
+        {
+          label,
+          data: values.map((point) => point.value),
+          borderColor: colors.accent,
+          backgroundColor: alphaColor(colors.accent, 0.14),
+          borderWidth: 2.4,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 2.6,
+          pointHoverRadius: 5,
+        },
+      ],
+    },
+    options: chartBaseOptions({
+      colors,
+      yTitle: "Alignment",
+      yMax: 100,
+      yTick: (value) => `${value}%`,
+      tooltipLabel: (context) => `${context.dataset.label}: ${Number(context.parsed.y || 0).toFixed(1)}%`,
+      tooltipAfterBody: (items) => {
+        const point = values[items[0]?.dataIndex ?? 0];
+        return [
+          `${formatNumber.format(point?.aligned || 0)} aligned`,
+          `${formatNumber.format(point?.messages || 0)} messages`,
+        ];
+      },
+    }),
+  });
 }
 
 function renderParsedDispositionChart() {
   const target = document.getElementById("parsed-disposition-trend");
   if (!target) return;
+  destroyDashboardChart("parsed-disposition-trend");
   const points = filteredTrendPoints();
   if (!points.length) {
     target.innerHTML = `<div class="parsed-empty">No results found</div>`;
     return;
   }
 
-  const max = Math.max(...points.map((point) => Number(point.messages || 0)), 1);
-  target.innerHTML = `
-    <div class="parsed-disposition-bars">
-      ${points
-        .map((point) => {
-          const rejected = Number(point.rejected || 0);
-          const quarantined = Number(point.quarantined || 0);
-          const none = Math.max(0, Number(point.messages || 0) - rejected - quarantined);
-          const height = Math.max(5, (Number(point.messages || 0) / max) * 100);
-          const detail = `${shortDate(point.date)} · ${formatNumber.format(point.messages)} messages · none ${formatNumber.format(none)} · quarantine ${formatNumber.format(quarantined)} · reject ${formatNumber.format(rejected)}`;
-          return `
-            <div class="parsed-disposition-bar" style="height: ${height}%" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}">
-              <i class="none" style="height: ${(none / Math.max(point.messages, 1)) * 100}%"></i>
-              <i class="quarantine" style="height: ${(quarantined / Math.max(point.messages, 1)) * 100}%"></i>
-              <i class="reject" style="height: ${(rejected / Math.max(point.messages, 1)) * 100}%"></i>
-            </div>
-          `;
-        })
-        .join("")}
-    </div>
-    <div class="parsed-legend"><span><i class="none"></i>none</span><span><i class="quarantine"></i>quarantine</span><span><i class="reject"></i>reject</span></div>
-  `;
+  const colors = chartTheme();
+  const rows = points.map((point) => {
+    const reject = Number(point.rejected || 0);
+    const quarantine = Number(point.quarantined || 0);
+    const none = Math.max(0, Number(point.messages || 0) - reject - quarantine);
+    return { ...point, none, quarantine, reject };
+  });
+  createDashboardChart("parsed-disposition-trend", "bar", {
+    data: {
+      labels: rows.map((point) => shortDate(point.date)),
+      datasets: [
+        {
+          label: "none",
+          data: rows.map((point) => point.none),
+          backgroundColor: colors.success,
+          borderRadius: 3,
+          stack: "disposition",
+        },
+        {
+          label: "quarantine",
+          data: rows.map((point) => point.quarantine),
+          backgroundColor: colors.warning,
+          borderRadius: 3,
+          stack: "disposition",
+        },
+        {
+          label: "reject",
+          data: rows.map((point) => point.reject),
+          backgroundColor: colors.danger,
+          borderRadius: 3,
+          stack: "disposition",
+        },
+      ],
+    },
+    options: chartBaseOptions({
+      colors,
+      stacked: true,
+      yTitle: "Messages",
+      tooltipAfterBody: (items) => {
+        const point = rows[items[0]?.dataIndex ?? 0];
+        return [`Total: ${formatNumber.format(point?.messages || 0)} messages`];
+      },
+    }),
+  });
 }
 
 function renderParsedReportingOrganizations() {
@@ -2034,24 +2048,6 @@ function renderParsedTable(id, columns, rows, rowCells, rowFilter = null) {
   });
 }
 
-function miniChartPoints(values, max) {
-  const width = 278;
-  const left = 28;
-  const top = 18;
-  const height = 96;
-  const safeMax = Math.max(max, 1);
-  const step = values.length > 1 ? width / (values.length - 1) : 0;
-  return values.map((value, index) => ({
-    x: left + step * index,
-    y: top + height - (Number(value || 0) / safeMax) * height,
-  }));
-}
-
-function miniAreaPath(points) {
-  if (!points.length) return "";
-  return `${linePath(points)} L ${points[points.length - 1].x} 130 L ${points[0].x} 130 Z`;
-}
-
 function reverseDnsLabel(source) {
   const sender = String(source.sender || "").trim();
   if (sender && sender !== "Unknown sender") return sender;
@@ -2084,25 +2080,165 @@ function filteredTrendPoints() {
   return points.filter((point) => point.timestamp >= start);
 }
 
-function trendLabels(points) {
-  const interval = Math.max(1, Math.ceil(points.length / 6));
-  return points.filter((_, index) => index === 0 || index === points.length - 1 || index % interval === 0);
+function createDashboardChart(id, type, config) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  destroyDashboardChart(id);
+
+  if (!window.Chart) {
+    target.innerHTML = `<div class="parsed-empty">Chart module unavailable</div>`;
+    return;
+  }
+
+  target.classList.remove("trend-empty-state");
+  target.innerHTML = `<canvas class="dashboard-chart-canvas" role="img" aria-label="${escapeHtml(config.ariaLabel || "Dashboard chart")}"></canvas>`;
+  const canvas = target.querySelector("canvas");
+  const chart = new window.Chart(canvas, {
+    type,
+    data: config.data,
+    options: config.options,
+  });
+  dashboardCharts.set(id, chart);
 }
 
-function trendPoints(points, max, key) {
-  const width = 590;
-  const left = 34;
-  const top = 22;
-  const height = 198;
-  const step = points.length > 1 ? width / (points.length - 1) : 0;
-  return points.map((point, index) => ({
-    x: left + step * index,
-    y: top + height - (Number(point[key] || 0) / max) * height,
-  }));
+function destroyDashboardChart(id) {
+  const chart = dashboardCharts.get(id);
+  if (!chart) return;
+  chart.destroy();
+  dashboardCharts.delete(id);
 }
 
-function linePath(points) {
-  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+function chartBaseOptions({
+  colors,
+  stacked = false,
+  yTitle = "",
+  yMax = undefined,
+  yTick = undefined,
+  tooltipLabel = undefined,
+  tooltipAfterBody = undefined,
+} = {}) {
+  const textColor = colors?.muted || cssVar("--dm-muted");
+  const gridColor = colors?.line || cssVar("--dm-line");
+  const tooltipCallbacks = {
+    label: tooltipLabel || ((context) => `${context.dataset.label}: ${formatNumber.format(Number(context.parsed.y || 0))}`),
+  };
+  if (tooltipAfterBody) tooltipCallbacks.afterBody = tooltipAfterBody;
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    resizeDelay: 120,
+    interaction: {
+      intersect: false,
+      mode: "index",
+    },
+    plugins: {
+      legend: {
+        display: true,
+        position: "top",
+        align: "end",
+        labels: {
+          boxHeight: 8,
+          boxWidth: 18,
+          color: textColor,
+          font: {
+            size: 11,
+            weight: 700,
+          },
+          usePointStyle: true,
+        },
+      },
+      tooltip: {
+        backgroundColor: colors?.surface || cssVar("--dm-surface"),
+        borderColor: gridColor,
+        borderWidth: 1,
+        bodyColor: colors?.text || cssVar("--dm-text"),
+        displayColors: true,
+        padding: 10,
+        titleColor: colors?.text || cssVar("--dm-text"),
+        callbacks: tooltipCallbacks,
+      },
+    },
+    scales: {
+      x: {
+        stacked,
+        border: {
+          color: gridColor,
+        },
+        grid: {
+          display: false,
+        },
+        ticks: {
+          autoSkip: true,
+          maxRotation: 0,
+          color: textColor,
+          font: {
+            size: 10,
+            weight: 650,
+          },
+        },
+      },
+      y: {
+        stacked,
+        beginAtZero: true,
+        max: yMax,
+        border: {
+          color: gridColor,
+        },
+        grid: {
+          color: gridColor,
+          drawTicks: false,
+        },
+        title: {
+          display: Boolean(yTitle),
+          text: yTitle,
+          color: textColor,
+          font: {
+            size: 11,
+            weight: 750,
+          },
+        },
+        ticks: {
+          color: textColor,
+          maxTicksLimit: 5,
+          padding: 8,
+          callback: yTick || ((value) => formatNumber.format(Number(value))),
+          font: {
+            size: 10,
+            weight: 650,
+          },
+        },
+      },
+    },
+  };
+}
+
+function chartTheme() {
+  return {
+    accent: cssVar("--dm-accent"),
+    success: cssVar("--dm-success"),
+    warning: cssVar("--dm-warning"),
+    danger: cssVar("--dm-danger"),
+    line: cssVar("--dm-line"),
+    muted: cssVar("--dm-muted"),
+    surface: cssVar("--dm-surface"),
+    text: cssVar("--dm-text"),
+  };
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function alphaColor(color, alpha) {
+  const hex = color.trim().replace("#", "");
+  if (!/^[\da-f]{3}([\da-f]{3})?$/i.test(hex)) return color;
+  const full = hex.length === 3 ? hex.split("").map((part) => part + part).join("") : hex;
+  const value = Number.parseInt(full, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function renderProtocols() {
