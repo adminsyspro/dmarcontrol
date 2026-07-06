@@ -1712,9 +1712,14 @@ function renderParsedKpi(id, rate, passed, total) {
   }
 
   const failed = Math.max(0, total - passed);
+  const safeRate = Math.max(0, Math.min(100, Number(rate || 0)));
+  const status = parsedRateStatus(safeRate);
+  const tooltip = `${safeRate.toFixed(1)}% pass · ${formatNumber.format(passed)} pass · ${formatNumber.format(failed)} fail · ${formatNumber.format(total)} total`;
   target.innerHTML = `
-    <strong class="${parsedRateStatus(rate)}">${Number(rate || 0).toFixed(1)}%</strong>
-    <div class="parsed-kpi-bar" aria-hidden="true"><i style="width: ${Math.max(2, Math.min(100, Number(rate || 0)))}%"></i></div>
+    <div class="parsed-donut ${status}" style="--donut-value: ${safeRate}" tabindex="0" data-tooltip="${escapeHtml(tooltip)}" aria-label="${escapeHtml(tooltip)}">
+      <span>${safeRate.toFixed(1)}%</span>
+      <small>pass</small>
+    </div>
     <dl>
       <div><dt>pass</dt><dd>${formatNumber.format(passed)}</dd></div>
       <div><dt>fail</dt><dd>${formatNumber.format(failed)}</dd></div>
@@ -1756,6 +1761,8 @@ function renderParsedAlignmentChart(id, key, label) {
     messages: point.messages,
   }));
   const chartPoints = miniChartPoints(values.map((point) => point.value), 100);
+  const areaPath = miniAreaPath(chartPoints);
+  const line = linePath(chartPoints);
 
   target.innerHTML = `
     <svg viewBox="0 0 320 150" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(label)} alignment over time">
@@ -1764,11 +1771,25 @@ function renderParsedAlignmentChart(id, key, label) {
         <path d="M28 66 H306" />
         <path d="M28 114 H306" />
       </g>
-      <path class="parsed-mini-area" d="${miniAreaPath(chartPoints)}" />
-      <path class="parsed-mini-line" d="${linePath(chartPoints)}" />
-      ${chartPoints.map((point, index) => `<circle cx="${point.x}" cy="${point.y}" r="3"><title>${escapeHtml(shortDate(values[index].date))} · ${values[index].value.toFixed(1)}% · ${formatNumber.format(values[index].messages)} messages</title></circle>`).join("")}
+      <g class="parsed-chart-axis">
+        <text x="10" y="22">100</text>
+        <text x="16" y="118">0</text>
+      </g>
+      <path class="parsed-mini-area" d="${areaPath}" />
+      <path class="parsed-mini-line" d="${line}" />
+      ${chartPoints.map((point, index) => {
+        const detail = `${label} · ${shortDate(values[index].date)} · ${values[index].value.toFixed(1)}% · ${formatNumber.format(values[index].messages)} messages`;
+        return `
+          <circle class="parsed-mini-hitpoint" cx="${point.x}" cy="${point.y}" r="9" tabindex="0" data-tooltip="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}"></circle>
+          <circle class="parsed-mini-point" cx="${point.x}" cy="${point.y}" r="3.8" aria-hidden="true"></circle>
+        `;
+      }).join("")}
     </svg>
-    <div class="parsed-chart-foot"><span>0%</span><span>100%</span></div>
+    <div class="parsed-chart-foot">
+      <span>${escapeHtml(shortDate(values[0].date))}</span>
+      <strong>${values[values.length - 1].value.toFixed(1)}%</strong>
+      <span>${escapeHtml(shortDate(values[values.length - 1].date))}</span>
+    </div>
   `;
 }
 
